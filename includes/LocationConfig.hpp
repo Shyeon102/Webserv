@@ -19,6 +19,7 @@
 #include "ConfigUtils.hpp"
 #include <vector>
 #include <map>
+#include <cstdlib>
 
 class	LocationConfig
 {
