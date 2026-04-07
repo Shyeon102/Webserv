@@ -51,6 +51,8 @@ class	LocationConfig
 		bool							hasCgiPass(void) const;
 		const std::map<std::string, std::string>&	getCgiPass(void) const;
 		void							inheritRootIfUnset(const std::string& serverRoot);
+		void							inheritIndexIfUnset(const std::vector<std::string>& serverIndex);
+		void							inheritAutoindexIfUnset(bool serverAutoindex);
 
 
 	private:

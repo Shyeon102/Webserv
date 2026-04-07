@@ -496,7 +496,13 @@ void	ServerConfig::validateServerBlock()
 	if (!this->_hasKeepAliveMax)
 		this->_keepAliveMax = DEFAULT_KEEPALIVE_MAX;
 	for (size_t i = 0; i < this->_locations.size(); ++i)
+	{
 		this->_locations[i].inheritRootIfUnset(this->_root);
+		if (this->_hasIndex)
+			this->_locations[i].inheritIndexIfUnset(this->_index);
+		if (this->_hasAutoindex)
+			this->_locations[i].inheritAutoindexIfUnset(this->_autoindex);
+	}
 	duplicateLocationPathCheck(); // 4) location path 중복 검사
 }
 

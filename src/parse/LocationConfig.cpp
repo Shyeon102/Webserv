@@ -313,3 +313,21 @@ void	LocationConfig::inheritRootIfUnset(const std::string& serverRoot)
 		this->_rootSet = true;
 	}
 }
+
+void	LocationConfig::inheritIndexIfUnset(const std::vector<std::string>& serverIndex)
+{
+	if (!this->_hasIndex)
+	{
+		this->_index = serverIndex;
+		this->_hasIndex = true;
+	}
+}
+
+void	LocationConfig::inheritAutoindexIfUnset(bool serverAutoindex)
+{
+	if (!this->_autoindexSet)
+	{
+		this->_autoindex = serverAutoindex;
+		this->_autoindexSet = true;
+	}
+}

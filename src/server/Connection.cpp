@@ -4,8 +4,7 @@
 
 Connection::Connection(int fd)
 : _fd(fd), _state(READING), _outPos(0), _closeAfterWrite(false),
-  _lastActive(std::time(NULL)), _requestsHandled(0),
-  _readFailStreak(0), _writeFailStreak(0) {}
+  _lastActive(std::time(NULL)), _requestsHandled(0) {}
 
 Connection::~Connection() {
     if (_fd != -1) ::close(_fd);
@@ -47,38 +46,22 @@ void Connection::incRequestCount() { ++_requestsHandled; }
 int Connection::requestCount() const { return _requestsHandled; }
 
 bool Connection::onReadable() {
-    // Must be large enough to return 413 for body-limit violations instead of
-    // dropping the connection before request validation.
     static const size_t MAX_INPUT_SIZE = (10 * 1024 * 1024) + (64 * 1024);
-    static const int MAX_FAIL_STREAK = 3;
 
     char buf[8192];
     ssize_t n = ::recv(_fd, buf, sizeof(buf), 0);
     if (n > 0) {
-        _readFailStreak = 0;
-        // Check for buffer overflow before appending
-        if (_in.size() + static_cast<size_t>(n) > MAX_INPUT_SIZE) {
-            // Input buffer limit exceeded - close connection
+        if (_in.size() + static_cast<size_t>(n) > MAX_INPUT_SIZE)
             return false;
-        }
         _in.append(buf, n);
         touch();
         return true;
     }
-    if (n == 0) {
-        // peer closed (FIN)
-        return false;
-    }
-    // n < 0: do not branch on errno after recv. Close only after repeated failures.
-    _readFailStreak++;
-    if (_readFailStreak >= MAX_FAIL_STREAK)
-        return false;
-    return true;
+    // n == 0: peer closed (FIN), n < 0: error → both close immediately
+    return false;
 }
 
 bool Connection::onWritable() {
-    static const int MAX_FAIL_STREAK = 3;
-
     if (_outPos >= _out.size()) {
         _out.clear();
         _outPos = 0;
@@ -94,14 +77,11 @@ bool Connection::onWritable() {
 
     ssize_t n = ::send(_fd, _out.data() + _outPos, _out.size() - _outPos, flags);
     if (n > 0) {
-        _writeFailStreak = 0;
         _outPos += static_cast<size_t>(n);
         touch();
     } else if (n < 0) {
-        // n < 0: do not branch on errno after send. Close only after repeated failures.
-        _writeFailStreak++;
-        if (_writeFailStreak >= MAX_FAIL_STREAK)
-            return false;
+        // error → close immediately
+        return false;
     }
 
     if (_outPos < _out.size())

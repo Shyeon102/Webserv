@@ -49,8 +49,6 @@ private:
     bool _closeAfterWrite;
     std::time_t _lastActive;
     int _requestsHandled;
-    int _readFailStreak;
-    int _writeFailStreak;
 
     Connection(const Connection&);
     Connection& operator=(const Connection&);
