@@ -644,13 +644,18 @@ void Server::onRequest(int fd, const HttpRequest& req) {
     const LocationConfig* location = router.match(uriPath);
     const std::vector<std::string> allowedMethods = resolveAllowedMethods(location, cfg);
     const std::string allowHeader = buildAllowHeaderValue(allowedMethods);
-
+    
     if (location == NULL) {
         resp = buildErrorResponse(404, cfg);
     } else {
         bool allowed = hasMethod(allowedMethods, req.getMethod());
 
-        if (!allowed) {
+        if (location->hasRedirect()) {
+            const Redirect& redir = location->getRedirect();
+            resp.setStatus(redir.status);
+            resp.setHeader("Location", redir.target);
+            resp.setBody("");
+        } else if (!allowed) {
             resp = buildErrorResponse(405, cfg);
             resp.setHeader("Allow", allowHeader);
         } else if (locationHasCgiForUri(*location, req.getURI())) {
