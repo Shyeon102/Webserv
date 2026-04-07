@@ -669,7 +669,7 @@ void Server::onRequest(int fd, const HttpRequest& req) {
             GETHandler getHandler;
             resp = getHandler.handle(req, *location);
             if (req.getMethod() == "HEAD")
-                resp.setBody(""); // HEAD 요청은 바디 없이 헤더만 전송
+                resp.suppressBody(); // HEAD 요청은 바디 없이 헤더만 전송
         } else if (req.getMethod() == "POST") {
             size_t maxBody = cfg.hasClientMaxBodySize() ? cfg.getClientMaxBodySize() : 0;
             POSTHandler postHandler(maxBody);

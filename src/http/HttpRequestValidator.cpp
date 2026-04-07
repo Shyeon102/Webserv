@@ -103,7 +103,7 @@ HttpParseResult	HttpRequestValidator::validate(const HttpRequest& request)
 
     // 5) Method 검사 (필수 구현 3개)
     std::string	method = request.getMethod();
-    if (method != "GET" && method != "POST" && method != "DELETE")
+    if (method != "GET" && method != "POST" && method != "DELETE" && method != "HEAD")
         return HttpParseResult(HttpParseResult::PARSE_ERROR, 501, 0); // 그외 메서드 501
     
     // POST인데 Content-Length도 없고 chunked도 아님 -> 411

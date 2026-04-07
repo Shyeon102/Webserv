@@ -49,6 +49,8 @@ public:
     bool isKeepAlive() const;
     int getStatusCode() const;
 
+    void suppressBody(); // HEAD 용 body만 제거 content-length 유지
+
 private:
     std::string getStatusMessage(int code) const;
     void ensureHeaders();
@@ -61,6 +63,8 @@ private:
     
     bool keepAlive;
     bool chunked;
+    bool _suppressBody;
+
 };
 
 #endif
