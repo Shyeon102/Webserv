@@ -125,7 +125,8 @@ void HttpResponse::ensureHeaders() {
     }
 
     // Content-Type 기본값
-    if (headers.find("Content-Type") == headers.end()) {
+    if (headers.find("Content-Type") == headers.end() && 
+        headers.find("content-type") == headers.end()) {
         headers["Content-Type"] = "text/html; charset=utf-8";
     }
 
