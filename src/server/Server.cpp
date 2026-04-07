@@ -19,6 +19,8 @@
 #include <sstream>
 #include <cctype>
 
+#include <stdio.h> // for perror but we can change to strerror
+// perror를 사용해도 되는지 확인
 static void fatal(const char* msg) {
     perror(msg);
     std::exit(1);
