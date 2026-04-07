@@ -51,6 +51,7 @@ static std::vector<std::string> normalizeConfiguredMethods(const std::vector<std
     std::vector<std::string> allowed;
     // Project policy: GET is always allowed.
     allowed.push_back("GET");
+    allowed.push_back("HEAD");
     if (hasMethod(configured, "POST"))
         allowed.push_back("POST");
     if (hasMethod(configured, "DELETE"))
@@ -72,6 +73,7 @@ static std::vector<std::string> resolveAllowedMethods(const LocationConfig* loc,
 
     std::vector<std::string> defaults;
     defaults.push_back("GET");
+    defaults.push_back("HEAD");
     return defaults;
 }
 
@@ -663,9 +665,11 @@ void Server::onRequest(int fd, const HttpRequest& req) {
         } else if (locationHasCgiForUri(*location, req.getURI())) {
             CgiHandler cgiHandler;
             resp = cgiHandler.handle(req, *location);
-        } else if (req.getMethod() == "GET") {
+        } else if (req.getMethod() == "GET" || req.getMethod() == "HEAD") {
             GETHandler getHandler;
             resp = getHandler.handle(req, *location);
+            if (req.getMethod() == "HEAD")
+                resp.setBody(""); // HEAD 요청은 바디 없이 헤더만 전송
         } else if (req.getMethod() == "POST") {
             size_t maxBody = cfg.hasClientMaxBodySize() ? cfg.getClientMaxBodySize() : 0;
             POSTHandler postHandler(maxBody);
