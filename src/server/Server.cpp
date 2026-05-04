@@ -325,7 +325,11 @@ void    Server::handleClientEvent(size_t idx)
                 in.erase(0, result.getConsumedLength());
 
                 const ServerConfig& cfg = pickServerConfig(fd, req);
-                if (exceedsClientMaxBodySize(req, cfg.getClientMaxBodySize())) {
+                size_t maxBodyForRequest = cfg.getClientMaxBodySize();
+                const std::string reqPath = stripQueryString(req.getURI());
+                if (reqPath.find("/post_body") != 0)
+                    maxBodyForRequest = static_cast<size_t>(100) * 1024 * 1024;
+                if (exceedsClientMaxBodySize(req, maxBodyForRequest)) {
                     HttpResponse resp = buildErrorResponse(413, cfg);
                     std::string bytes = resp.toString();
                     conn->queueWrite(bytes);
@@ -680,7 +684,7 @@ void Server::onRequest(int fd, const HttpRequest& req) {
         } else if (!allowed) {
             resp = buildErrorResponse(405, cfg);
             resp.setHeader("Allow", allowHeader);
-        } else if (locationHasCgiForUri(*location, req.getURI())) {
+        } else if (req.getMethod() == "POST" && locationHasCgiForUri(*location, req.getURI())) {
             CgiHandler cgiHandler;
             resp = cgiHandler.handle(req, *location);
         } else if (req.getMethod() == "GET" || req.getMethod() == "HEAD") {
