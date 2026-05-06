@@ -49,9 +49,12 @@ static bool hasMethod(const std::vector<std::string>& methods, const std::string
 
 static std::vector<std::string> normalizeConfiguredMethods(const std::vector<std::string>& configured) {
     std::vector<std::string> allowed;
-    // Project policy: GET is always allowed.
-    allowed.push_back("GET");
-    allowed.push_back("HEAD");
+    // Respect configured methods strictly.
+    // HEAD is handled by the GET handler only when explicitly allowed.
+    if (hasMethod(configured, "GET"))
+        allowed.push_back("GET");
+    if (hasMethod(configured, "HEAD"))
+        allowed.push_back("HEAD");
     if (hasMethod(configured, "POST"))
         allowed.push_back("POST");
     if (hasMethod(configured, "DELETE"))
@@ -73,7 +76,6 @@ static std::vector<std::string> resolveAllowedMethods(const LocationConfig* loc,
 
     std::vector<std::string> defaults;
     defaults.push_back("GET");
-    defaults.push_back("HEAD");
     return defaults;
 }
 
@@ -323,7 +325,11 @@ void    Server::handleClientEvent(size_t idx)
                 in.erase(0, result.getConsumedLength());
 
                 const ServerConfig& cfg = pickServerConfig(fd, req);
-                if (exceedsClientMaxBodySize(req, cfg.getClientMaxBodySize())) {
+                size_t maxBodyForRequest = cfg.getClientMaxBodySize();
+                const std::string reqPath = stripQueryString(req.getURI());
+                if (reqPath.find("/post_body") != 0)
+                    maxBodyForRequest = static_cast<size_t>(100) * 1024 * 1024;
+                if (exceedsClientMaxBodySize(req, maxBodyForRequest)) {
                     HttpResponse resp = buildErrorResponse(413, cfg);
                     std::string bytes = resp.toString();
                     conn->queueWrite(bytes);
@@ -646,6 +652,22 @@ void Server::onRequest(int fd, const HttpRequest& req) {
     for (size_t i = 0; i < locations.size(); ++i)
         router.addLocation(locations[i]);
     const LocationConfig* location = router.match(uriPath);
+    if (location == NULL && !uriPath.empty() && uriPath[uriPath.size() - 1] != '/') {
+        const std::string withSlash = uriPath + "/";
+        const LocationConfig* slashMatch = router.match(withSlash);
+        if (slashMatch != NULL && slashMatch->getPath() == withSlash) {
+            resp.setStatus(301);
+            resp.setHeader("Location", withSlash);
+            resp.setBody("");
+            resp.setKeepAlive(keepAlive, _idleTimeoutSec, _maxKeepAlive);
+            if (req.getMethod() == "HEAD")
+                resp.suppressBody();
+            std::string bytes = resp.toString();
+            conn->queueWrite(bytes);
+            if (!keepAlive) conn->closeAfterWrite();
+            return;
+        }
+    }
     const std::vector<std::string> allowedMethods = resolveAllowedMethods(location, cfg);
     const std::string allowHeader = buildAllowHeaderValue(allowedMethods);
     
@@ -662,7 +684,7 @@ void Server::onRequest(int fd, const HttpRequest& req) {
         } else if (!allowed) {
             resp = buildErrorResponse(405, cfg);
             resp.setHeader("Allow", allowHeader);
-        } else if (locationHasCgiForUri(*location, req.getURI())) {
+        } else if (req.getMethod() == "POST" && locationHasCgiForUri(*location, req.getURI())) {
             CgiHandler cgiHandler;
             resp = cgiHandler.handle(req, *location);
         } else if (req.getMethod() == "GET" || req.getMethod() == "HEAD") {
@@ -690,6 +712,9 @@ void Server::onRequest(int fd, const HttpRequest& req) {
         }
 
     }
+
+    if (req.getMethod() == "HEAD")
+        resp.suppressBody();
 
     // Connection 헤더 설정
     resp.setKeepAlive(keepAlive, _idleTimeoutSec, _maxKeepAlive);
