@@ -114,7 +114,7 @@ private:
     time_t lastActivityTime;
     
     // 보안 제한 (설정 가능하도록 static const로)
-    static const size_t MAX_REQUEST_SIZE = 10 * 1024 * 1024;  // 10MB
+    static const size_t MAX_REQUEST_SIZE = 120 * 1024 * 1024;  // 10MB
     static const size_t MAX_HEADER_SIZE = 8 * 1024;            // 8KB
     static const size_t MAX_URI_LENGTH = 2048;                 // 2KB
     static const size_t MAX_LINE_LENGTH = 8192;                // 8KB
