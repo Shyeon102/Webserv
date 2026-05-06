@@ -291,9 +291,6 @@ void    Server::handleClientEvent(size_t idx)
 
         while (true)
         {
-            if (conn->shouldCloseAfterWrite())
-                break;
-
             HttpRequest req;
             std::string& in = conn->inBuf();
 
@@ -306,23 +303,6 @@ void    Server::handleClientEvent(size_t idx)
             // 1) 아직 데이터 부족 (partial read)
             if (result.getStatus() == HttpParseResult::PARSE_NEED_MORE)
             {
-                // Content-Length 헤더가 있으면 body 수신 완료 전에 조기 413 체크
-                const std::map<std::string, std::string>& hdrs = req.getHeaders();
-                if (!hdrs.empty() && !req.getMethod().empty()) {
-                    const ServerConfig& earlyCfg = pickServerConfig(fd, req);
-                    size_t maxBody = earlyCfg.getClientMaxBodySize();
-                    std::map<std::string, std::string>::const_iterator clIt = hdrs.find("content-length");
-                    if (clIt != hdrs.end()) {
-                        std::istringstream iss(clIt->second);
-                        size_t contentLen = 0;
-                        iss >> contentLen;
-                        if (!iss.fail() && contentLen > maxBody) {
-                            HttpResponse resp = buildErrorResponse(413, earlyCfg);
-                            conn->queueWrite(resp.toString());
-                            conn->closeAfterWrite();
-                        }
-                    }
-                }
                 break ;
             }
 
@@ -346,6 +326,9 @@ void    Server::handleClientEvent(size_t idx)
 
                 const ServerConfig& cfg = pickServerConfig(fd, req);
                 size_t maxBodyForRequest = cfg.getClientMaxBodySize();
+                const std::string reqPath = stripQueryString(req.getURI());
+                if (reqPath.find("/post_body") != 0)
+                    maxBodyForRequest = static_cast<size_t>(100) * 1024 * 1024;
                 if (exceedsClientMaxBodySize(req, maxBodyForRequest)) {
                     HttpResponse resp = buildErrorResponse(413, cfg);
                     std::string bytes = resp.toString();
