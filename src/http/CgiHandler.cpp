@@ -13,6 +13,8 @@
 #include "CgiHandler.hpp"
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <sys/select.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <cstring>
@@ -23,6 +25,7 @@
 #include <errno.h>
 #include <signal.h>
 #include <vector>
+#include <ctime>
 
 CgiHandler::CgiHandler() {}
 CgiHandler::~CgiHandler() {}
@@ -234,38 +237,105 @@ std::string CgiHandler::executeCgi(
     close(pipeIn[0]);
     close(pipeOut[1]);
 
-    // POST body를 CGI stdin으로 전송 (대용량 본문도 전체 전송)
-    if (!body.empty()) {
-        size_t total = 0;
-        while (total < body.size()) {
-            ssize_t written = write(pipeIn[1], body.c_str() + total, body.size() - total);
-            if (written < 0) {
+    // 파이프를 non-blocking으로 설정해서 write/read를 인터리브한다.
+    // 그렇지 않으면 큰 body의 경우 데드락이 발생함:
+    //   - 부모는 stdin 파이프에 모두 쓰려고 시도 -> 파이프 가득 -> 블록
+    //   - 자식은 stdout에 출력 -> 파이프 가득 -> 블록
+    //   - 부모는 자식 출력을 읽지 못하고, 자식은 입력을 더 받지 못함 -> 데드락
+    int inFlags = fcntl(pipeIn[1], F_GETFL, 0);
+    if (inFlags >= 0) fcntl(pipeIn[1], F_SETFL, inFlags | O_NONBLOCK);
+    int outFlags = fcntl(pipeOut[0], F_GETFL, 0);
+    if (outFlags >= 0) fcntl(pipeOut[0], F_SETFL, outFlags | O_NONBLOCK);
+
+    std::string output;
+    size_t writeOffset = 0;
+    bool stdinClosed = body.empty();
+    if (stdinClosed) {
+        close(pipeIn[1]);
+        pipeIn[1] = -1;
+    }
+    bool stdoutClosed = false;
+
+    const int CGI_TIMEOUT_SEC = 30;
+    std::time_t deadline = std::time(NULL) + CGI_TIMEOUT_SEC;
+    bool timedOut = false;
+
+    while (!stdoutClosed) {
+        std::time_t now = std::time(NULL);
+        if (now >= deadline) {
+            timedOut = true;
+            break;
+        }
+
+        fd_set rfds, wfds;
+        FD_ZERO(&rfds);
+        FD_ZERO(&wfds);
+        int maxFd = -1;
+        if (!stdoutClosed) {
+            FD_SET(pipeOut[0], &rfds);
+            if (pipeOut[0] > maxFd) maxFd = pipeOut[0];
+        }
+        if (!stdinClosed) {
+            FD_SET(pipeIn[1], &wfds);
+            if (pipeIn[1] > maxFd) maxFd = pipeIn[1];
+        }
+        if (maxFd < 0) break;
+
+        struct timeval tv;
+        tv.tv_sec = (deadline > now) ? (deadline - now) : 0;
+        tv.tv_usec = 0;
+
+        int sel = select(maxFd + 1, &rfds, &wfds, NULL, &tv);
+        if (sel < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (sel == 0) {
+            timedOut = true;
+            break;
+        }
+
+        if (!stdinClosed && FD_ISSET(pipeIn[1], &wfds)) {
+            ssize_t w = write(pipeIn[1], body.c_str() + writeOffset, body.size() - writeOffset);
+            if (w > 0) {
+                writeOffset += static_cast<size_t>(w);
+                if (writeOffset >= body.size()) {
+                    close(pipeIn[1]);
+                    pipeIn[1] = -1;
+                    stdinClosed = true;
+                }
+            } else if (w < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
                 close(pipeIn[1]);
-                close(pipeOut[0]);
-                int status;
-                waitpid(pid, &status, 0);
-                throw std::runtime_error("write to CGI stdin failed");
+                pipeIn[1] = -1;
+                stdinClosed = true;
             }
-            if (written == 0)
-                break;
-            total += static_cast<size_t>(written);
+        }
+
+        if (!stdoutClosed && FD_ISSET(pipeOut[0], &rfds)) {
+            char buffer[8192];
+            ssize_t r = read(pipeOut[0], buffer, sizeof(buffer));
+            if (r > 0) {
+                output.append(buffer, r);
+            } else if (r == 0) {
+                stdoutClosed = true;
+            } else if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+                stdoutClosed = true;
+            }
         }
     }
-    close(pipeIn[1]);
 
-    // CGI 출력 읽기
-    std::string output;
-    char buffer[4096];
-    ssize_t bytesRead;
-    
-    while ((bytesRead = read(pipeOut[0], buffer, sizeof(buffer))) > 0) {
-        output.append(buffer, bytesRead);
-    }
+    if (pipeIn[1] != -1) close(pipeIn[1]);
     close(pipeOut[0]);
 
-    // 자식 프로세스 종료 대기 (타임아웃 처리)
+    if (timedOut) {
+        kill(pid, SIGKILL);
+        int status;
+        waitpid(pid, &status, 0);
+        throw std::runtime_error("CGI timeout");
+    }
+
     int status;
-    if (!waitWithTimeout(pid, status, 30)) { // 30초 타임아웃
+    if (!waitWithTimeout(pid, status, CGI_TIMEOUT_SEC)) {
         kill(pid, SIGKILL);
         waitpid(pid, &status, 0);
         throw std::runtime_error("CGI timeout");
