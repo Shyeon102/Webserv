@@ -24,6 +24,7 @@
 #include <signal.h>
 #include <vector>
 #include <limits.h>
+#include <poll.h>
 
 CgiHandler::CgiHandler() {}
 CgiHandler::~CgiHandler() {}
@@ -49,6 +50,12 @@ static std::string makeAbsolutePath(const std::string& path) {
         absolute += "/";
     absolute += path;
     return absolute;
+}
+
+static void setFdNonBlocking(int fd) {
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags >= 0)
+        fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
 /* ================= Main Handler ================= */
@@ -259,42 +266,127 @@ std::string CgiHandler::executeCgi(
     // 부모 프로세스
     close(pipeIn[0]);
     close(pipeOut[1]);
+    signal(SIGPIPE, SIG_IGN);
 
-    // POST body를 CGI stdin으로 전송 (대용량 본문도 전체 전송)
-    if (!body.empty()) {
-        size_t total = 0;
-        while (total < body.size()) {
-            ssize_t written = write(pipeIn[1], body.c_str() + total, body.size() - total);
-            if (written < 0) {
+    setFdNonBlocking(pipeIn[1]);
+    setFdNonBlocking(pipeOut[0]);
+
+    std::string output;
+    size_t totalWritten = 0;
+    bool stdinOpen = true;
+    bool stdoutOpen = true;
+    bool childExited = false;
+    int status = 0;
+    std::time_t start = std::time(NULL);
+
+    while (stdoutOpen || stdinOpen) {
+        if (!childExited) {
+            pid_t done = waitpid(pid, &status, WNOHANG);
+            if (done == pid)
+                childExited = true;
+            else if (done < 0) {
                 close(pipeIn[1]);
                 close(pipeOut[0]);
-                int status;
-                waitpid(pid, &status, 0);
-                throw std::runtime_error("write to CGI stdin failed");
+                throw std::runtime_error("waitpid failed");
             }
-            if (written == 0)
-                break;
-            total += static_cast<size_t>(written);
+        }
+
+        if (std::time(NULL) - start >= 30) {
+            if (!childExited)
+                kill(pid, SIGKILL);
+            close(pipeIn[1]);
+            close(pipeOut[0]);
+            waitpid(pid, &status, 0);
+            throw std::runtime_error("CGI timeout");
+        }
+
+        if (stdinOpen && totalWritten >= body.size()) {
+            close(pipeIn[1]);
+            stdinOpen = false;
+        }
+
+        struct pollfd fds[2];
+        int nfds = 0;
+
+        if (stdoutOpen) {
+            fds[nfds].fd = pipeOut[0];
+            fds[nfds].events = POLLIN;
+            fds[nfds].revents = 0;
+            ++nfds;
+        }
+        if (stdinOpen) {
+            fds[nfds].fd = pipeIn[1];
+            fds[nfds].events = POLLOUT;
+            fds[nfds].revents = 0;
+            ++nfds;
+        }
+
+        int ready = poll(fds, nfds, 100);
+        if (ready < 0) {
+            if (errno == EINTR)
+                continue;
+            if (stdinOpen)
+                close(pipeIn[1]);
+            if (stdoutOpen)
+                close(pipeOut[0]);
+            if (!childExited) {
+                kill(pid, SIGKILL);
+                waitpid(pid, &status, 0);
+            }
+            throw std::runtime_error("poll failed");
+        }
+        if (ready == 0)
+            continue;
+
+        for (int i = 0; i < nfds; ++i) {
+            if (stdoutOpen && fds[i].fd == pipeOut[0] && (fds[i].revents & (POLLIN | POLLHUP | POLLERR))) {
+                char buffer[4096];
+                while (true) {
+                    ssize_t bytesRead = read(pipeOut[0], buffer, sizeof(buffer));
+                    if (bytesRead > 0) {
+                        output.append(buffer, bytesRead);
+                    } else if (bytesRead == 0) {
+                        close(pipeOut[0]);
+                        stdoutOpen = false;
+                        break;
+                    } else {
+                        if (errno == EAGAIN || errno == EWOULDBLOCK)
+                            break;
+                        close(pipeOut[0]);
+                        stdoutOpen = false;
+                        break;
+                    }
+                }
+            }
+
+            if (stdinOpen && fds[i].fd == pipeIn[1] && (fds[i].revents & (POLLOUT | POLLHUP | POLLERR))) {
+                if (fds[i].revents & (POLLHUP | POLLERR)) {
+                    close(pipeIn[1]);
+                    stdinOpen = false;
+                    continue;
+                }
+
+                size_t remaining = body.size() - totalWritten;
+                size_t chunk = remaining > 16384 ? 16384 : remaining;
+                ssize_t written = write(pipeIn[1], body.c_str() + totalWritten, chunk);
+                if (written > 0) {
+                    totalWritten += static_cast<size_t>(written);
+                } else if (written < 0) {
+                    if (errno == EAGAIN || errno == EWOULDBLOCK)
+                        continue;
+                    close(pipeIn[1]);
+                    stdinOpen = false;
+                }
+            }
         }
     }
-    close(pipeIn[1]);
 
-    // CGI 출력 읽기
-    std::string output;
-    char buffer[4096];
-    ssize_t bytesRead;
-    
-    while ((bytesRead = read(pipeOut[0], buffer, sizeof(buffer))) > 0) {
-        output.append(buffer, bytesRead);
-    }
-    close(pipeOut[0]);
-
-    // 자식 프로세스 종료 대기 (타임아웃 처리)
-    int status;
-    if (!waitWithTimeout(pid, status, 30)) { // 30초 타임아웃
-        kill(pid, SIGKILL);
-        waitpid(pid, &status, 0);
-        throw std::runtime_error("CGI timeout");
+    if (!childExited) {
+        if (!waitWithTimeout(pid, status, 30)) {
+            kill(pid, SIGKILL);
+            waitpid(pid, &status, 0);
+            throw std::runtime_error("CGI timeout");
+        }
     }
 
     if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {

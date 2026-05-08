@@ -1,171 +1,176 @@
-*This project has been created as part of the 42 curriculum by <seong-ki>[, <jaoh>[, <jihyeki2>*
+*This project has been created as part of the 42 curriculum by seong-ki, jaoh, jihyeki2.*
 
 # Webserv
 
 ## Description
 
-Webserv is an HTTP server implemented in C++98 as part of the 42 curriculum.
+Webserv is a C++98 HTTP server built for the 42 curriculum. The project goal is to
+understand how a web server works internally by implementing request parsing,
+configuration parsing, socket management, routing, and response generation without
+using an existing HTTP server framework.
 
-The goal of this project is to understand how web servers work by building one from scratch.
-It handles client-server communication using the HTTP protocol and is capable of parsing
-HTTP requests, processing them according to a configuration file, and sending appropriate responses.
-
-Key objectives:
-- Understand HTTP/1.1 request and response structure
-- Implement a non-blocking server using poll() (or equivalent)
-- Parse configuration files similar to NGINX
-- Handle multiple clients simultaneously
-- Support basic HTTP methods (GET, POST, DELETE)
-
----
+The server reads an NGINX-like configuration file, listens on one or more ports,
+accepts multiple clients with non-blocking I/O, parses HTTP/1.1 requests, and sends
+responses for static files, uploads, redirects, error pages, and CGI scripts.
 
 ## Instructions
 
 ### Compilation
 
+Build the executable with:
+
 ```bash
 make
 ```
 
+Useful Makefile targets:
+
+```bash
+make clean
+make fclean
+make re
+```
+
 ### Execution
 
-```bash
-./webserv [configuration_file]
-```
-
-Example:
+Run the server with an explicit configuration file:
 
 ```bash
-./webserv config/default.conf
+./webserv conf.conf
 ```
 
----
-
-### Testing
-
-Using a browser:
-- Open: http://localhost:8080
-
-Using curl:
+The executable also accepts any compatible configuration file:
 
 ```bash
-curl http://localhost:8080
+./webserv tests/conf_basic.conf
 ```
 
-POST request:
+If no argument is provided, the program uses the default path defined in
+`includes/Config.hpp`:
 
 ```bash
-curl -X POST -d "data=hello" http://localhost:8080
+./webserv
 ```
 
-DELETE request:
+### Basic Tests
+
+With `conf.conf`, the server listens on port `8080`.
 
 ```bash
-curl -X DELETE http://localhost:8080/file
+curl http://localhost:8080/
+curl -X POST -d "data=hello" http://localhost:8080/post_body
 ```
 
----
+A browser can also be used:
+
+```text
+http://localhost:8080/
+```
+
+The repository includes additional configuration examples and stress tests in
+`tests/`. For example:
+
+```bash
+sh tests/stress_test.sh
+```
 
 ## Features
 
-### Configuration File
-- NGINX-like syntax
-- Multiple server blocks
-- Route-based configuration (location)
-- Supported directives:
-  - listen (ip:port)
-  - root
-  - error_page
-  - methods
-  - autoindex
-
-### HTTP Request Handling
-- Request line parsing (method, path, version)
-- Header parsing
-- Body parsing using Content-Length
-- Partial read handling
-
-### HTTP Response
-- Status code handling (200, 400, 404, 413, 501, etc.)
+- HTTP/1.1 request parsing: request line, headers, body, partial reads, and chunked bodies
+- HTTP methods: `GET`, `POST`, and `DELETE`
+- Static file serving from configured roots
+- Upload handling with `upload_store`
+- CGI execution through `cgi_pass`
 - Custom error pages
-- Static file serving
+- Redirection with `return`
+- Autoindex directory listing
+- Multiple server blocks and multiple listen ports
+- Route-based `location` configuration
+- Method restrictions with `methods` and `allow_methods`
+- Body size limits with `client_max_body_size`
+- Keep-alive connection handling
+- Connection limits and timeout-related directives
+- Non-blocking I/O with `poll()`
 
-### Server Behavior
-- Non-blocking I/O using poll() (or equivalent)
-- Multiple client handling
-- Keep-alive connection support
+## Configuration Overview
 
----
+The configuration format is inspired by NGINX. Supported directives include:
+
+- `listen`
+- `server_name`
+- `root`
+- `index`
+- `error_page`
+- `methods`
+- `allow_methods`
+- `autoindex`
+- `client_max_body_size`
+- `return`
+- `upload_store`
+- `cgi_pass`
+- `max_connections`
+- `idle_timeout`
+- `write_timeout`
+- `keepalive_max`
+
+Example:
+
+```nginx
+server {
+    listen 8080;
+    server_name localhost;
+    root ./YoupiBanane;
+    index index.html;
+    client_max_body_size 1000000;
+
+    location / {
+        allow_methods GET;
+        autoindex off;
+    }
+}
+```
 
 ## Technical Choices
 
 - Language: C++98
-- I/O Multiplexing: poll() (or select/kqueue depending on system)
-- Architecture:
-  - Config Parser (Tokenizer → Parser → Validation)
-  - HTTP Parser (state-based parsing)
-  - Request → Response pipeline
-
----
-
-## Resources
-
-### Documentation
-
-- HTTP/1.1 RFC (RFC 7230)
-- NGINX documentation
-- POSIX socket programming
-- poll()/select() manual
-
-### Useful Links
-
-- https://datatracker.ietf.org/doc/html/rfc7230
-- https://nginx.org/en/docs/
-- https://man7.org/linux/man-pages/man2/poll.2.html
-
----
-
-## AI Usage
-
-AI tools were used to assist in the following tasks:
-
-- Understanding HTTP protocol structure and parsing strategies
-- Designing the architecture of the configuration parser
-- Reviewing edge cases for HTTP request parsing (partial read, errors)
-- Generating initial documentation drafts (README structure)
-
-All generated content was:
-- Reviewed and tested manually
-- Modified to fit project requirements
-- Fully understood before integration
-
----
+- Build system: Makefile
+- I/O multiplexing: `poll()`
+- Parsing approach: tokenizer and parser for configuration files; state-based HTTP request parsing
+- Routing approach: select the best matching server and location, then dispatch to method-specific handlers
 
 ## Team
 
-| Name   | Responsibility           | Description                                          |
-|--------|--------------------------|------------------------------------------------------|
-|seong-ki| Server Core / Networking | - Socket creation and configuration                  |
-|        |                          | - Handling bind / listen / accept                    |
-|        |                          | - Implementation of poll()-based non-blocking I/O    |
-|        |                          | - Client connection management and event distribution|
-|--------|--------------------------|------------------------------------------------------|
-|jihyeki2| HTTP Parsing             | - Parsing raw buffer → HTTP Request                  |
-|        |                          | - Separating request line / headers / body           |
-|        |                          | - Content-Length based body processing               |
-|        |                          | - Handling partial reads                             |
-|        |                          | - Determining status codes for invalid requests      |
----------|--------------------------|------------------------------------------------------|
-|  jaoh  | Response / Execution     | - Request-based response generation                  |
-|        |                          | - Static file serving                                |
-|        |                          | - Error page handling                                |
-|        |                          | - CGI execution and result processing                |
+| Login | Main responsibility |
+| --- | --- |
+| seong-ki | Server core, sockets, non-blocking I/O, client connection handling |
+| jihyeki2 | HTTP request parsing, partial reads, request validation, status-code decisions |
+| jaoh | Response generation, static files, error pages, CGI execution |
 
----
+## Resources
 
-## Notes
+### References
 
-- The server is designed to remain stable under all conditions
-- All I/O operations are non-blocking
-- Only one poll() (or equivalent) is used for client handling
-- The server should not crash under any circumstances
+- HTTP Semantics: https://www.rfc-editor.org/rfc/rfc9110
+- HTTP/1.1: https://www.rfc-editor.org/rfc/rfc9112
+- RFC 7230, older HTTP/1.1 message syntax reference: https://datatracker.ietf.org/doc/html/rfc7230
+- NGINX documentation: https://nginx.org/en/docs/
+- POSIX sockets overview: https://man7.org/linux/man-pages/man7/socket.7.html
+- `socket(2)`: https://man7.org/linux/man-pages/man2/socket.2.html
+- `bind(2)`: https://man7.org/linux/man-pages/man2/bind.2.html
+- `listen(2)`: https://man7.org/linux/man-pages/man2/listen.2.html
+- `accept(2)`: https://man7.org/linux/man-pages/man2/accept.2.html
+- `recv(2)`: https://man7.org/linux/man-pages/man2/recv.2.html
+- `send(2)`: https://man7.org/linux/man-pages/man2/send.2.html
+- `poll(2)`: https://man7.org/linux/man-pages/man2/poll.2.html
+
+### AI Usage
+
+AI tools were used as support during documentation and design review. They helped with:
+
+- Drafting and organizing README sections
+- Reviewing HTTP parsing edge cases, including partial reads and malformed requests
+- Comparing configuration-parser behavior with common NGINX-style concepts
+- Producing test ideas and curl examples for manual validation
+
+AI-generated suggestions were reviewed manually, adapted to the actual implementation,
+and checked against the project requirements before being included.

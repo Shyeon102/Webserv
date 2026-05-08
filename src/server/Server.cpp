@@ -39,6 +39,101 @@ static std::string toLowerAscii(std::string s) {
     return s;
 }
 
+static std::string trimAscii(const std::string& s) {
+    size_t start = 0;
+    while (start < s.size() && std::isspace(static_cast<unsigned char>(s[start])))
+        ++start;
+    size_t end = s.size();
+    while (end > start && std::isspace(static_cast<unsigned char>(s[end - 1])))
+        --end;
+    return s.substr(start, end - start);
+}
+
+static bool parseBufferedContentLength(const std::string& headerBlock,
+                                       bool& hasContentLength,
+                                       size_t& contentLength,
+                                       bool& invalidHeader,
+                                       bool& isChunked) {
+    std::istringstream iss(headerBlock);
+    std::string line;
+
+    hasContentLength = false;
+    contentLength = 0;
+    invalidHeader = false;
+    isChunked = false;
+
+    std::getline(iss, line); // request line
+    while (std::getline(iss, line)) {
+        if (!line.empty() && line[line.size() - 1] == '\r')
+            line.erase(line.size() - 1);
+        if (line.empty())
+            break;
+
+        size_t colon = line.find(':');
+        if (colon == std::string::npos) {
+            invalidHeader = true;
+            return false;
+        }
+
+        std::string key = toLowerAscii(trimAscii(line.substr(0, colon)));
+        std::string value = trimAscii(line.substr(colon + 1));
+
+        if (key == "transfer-encoding" && toLowerAscii(value) == "chunked")
+            isChunked = true;
+
+        if (key == "content-length") {
+            if (hasContentLength) {
+                invalidHeader = true;
+                return false;
+            }
+            if (value.empty()) {
+                invalidHeader = true;
+                return false;
+            }
+            size_t parsed = 0;
+            for (size_t i = 0; i < value.size(); ++i) {
+                if (!std::isdigit(static_cast<unsigned char>(value[i]))) {
+                    invalidHeader = true;
+                    return false;
+                }
+                size_t digit = static_cast<size_t>(value[i] - '0');
+                if (parsed > (static_cast<size_t>(-1) - digit) / 10) {
+                    invalidHeader = true;
+                    return false;
+                }
+                parsed = parsed * 10 + digit;
+            }
+            hasContentLength = true;
+            contentLength = parsed;
+        }
+    }
+    return true;
+}
+
+static bool bufferedRequestReadyForParse(const std::string& in) {
+    size_t headerEnd = in.find("\r\n\r\n");
+    if (headerEnd == std::string::npos)
+        return false;
+
+    bool hasContentLength;
+    size_t contentLength;
+    bool invalidHeader;
+    bool isChunked;
+    parseBufferedContentLength(in.substr(0, headerEnd),
+                               hasContentLength,
+                               contentLength,
+                               invalidHeader,
+                               isChunked);
+
+    if (invalidHeader || isChunked || !hasContentLength)
+        return true;
+
+    size_t bodyStart = headerEnd + 4;
+    if (contentLength > static_cast<size_t>(-1) - bodyStart)
+        return true;
+    return in.size() >= bodyStart + contentLength;
+}
+
 static bool hasMethod(const std::vector<std::string>& methods, const std::string& method) {
     for (size_t i = 0; i < methods.size(); ++i) {
         if (methods[i] == method)
@@ -293,6 +388,9 @@ void    Server::handleClientEvent(size_t idx)
         {
             HttpRequest req;
             std::string& in = conn->inBuf();
+
+            if (!bufferedRequestReadyForParse(in))
+                break ;
 
             // raw buffer 기반 파싱 시도
             req.appendData(in);
