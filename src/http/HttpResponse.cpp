@@ -18,8 +18,7 @@ HttpResponse::HttpResponse()
     : statusCode(200),
       statusMessage("OK"),
       keepAlive(false),
-      chunked(false),
-      _suppressBody(false) {}
+      chunked(false) {}
 
 void HttpResponse::setStatus(int code) {
     statusCode = code;
@@ -103,10 +102,6 @@ std::string HttpResponse::getStatusMessage(int code) const {
     }
 }
 
-void HttpResponse::suppressBody() {
-    _suppressBody = true;
-}
-
 void HttpResponse::ensureHeaders() {
     // Date 헤더 추가
     if (headers.find("Date") == headers.end()) {
@@ -158,8 +153,8 @@ std::string HttpResponse::toString() {
     // 헤더와 바디 사이 빈 줄
     oss << "\r\n";
 
-    // Body (chunked가 아닌 경우고 suppressBody가 false인 경우에만 포함)
-    if (!chunked && !_suppressBody) {
+    // Body (chunked가 아닌 경우만)
+    if (!chunked) {
         oss << body;
     }
 
