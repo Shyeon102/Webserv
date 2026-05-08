@@ -46,7 +46,7 @@ void Connection::incRequestCount() { ++_requestsHandled; }
 int Connection::requestCount() const { return _requestsHandled; }
 
 bool Connection::onReadable() {
-    static const size_t MAX_INPUT_SIZE = (10 * 1024 * 1024) + (64 * 1024);
+    static const size_t MAX_INPUT_SIZE = (128 * 1024 * 1024);
 
     char buf[8192];
     ssize_t n = ::recv(_fd, buf, sizeof(buf), 0);
