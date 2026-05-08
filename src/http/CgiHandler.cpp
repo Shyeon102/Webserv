@@ -234,10 +234,22 @@ std::string CgiHandler::executeCgi(
     close(pipeIn[0]);
     close(pipeOut[1]);
 
-    // POST body를 CGI stdin으로 전송
+    // POST body를 CGI stdin으로 전송 (대용량 본문도 전체 전송)
     if (!body.empty()) {
-        ssize_t written = write(pipeIn[1], body.c_str(), body.size());
-        (void)written; // 에러 처리는 실제 구현에서 강화
+        size_t total = 0;
+        while (total < body.size()) {
+            ssize_t written = write(pipeIn[1], body.c_str() + total, body.size() - total);
+            if (written < 0) {
+                close(pipeIn[1]);
+                close(pipeOut[0]);
+                int status;
+                waitpid(pid, &status, 0);
+                throw std::runtime_error("write to CGI stdin failed");
+            }
+            if (written == 0)
+                break;
+            total += static_cast<size_t>(written);
+        }
     }
     close(pipeIn[1]);
 
