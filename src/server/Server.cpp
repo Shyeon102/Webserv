@@ -773,6 +773,7 @@ void Server::onRequest(int fd, const HttpRequest& req) {
         resp = buildErrorResponse(404, cfg);
     } else {
         bool allowed = hasMethod(allowedMethods, req.getMethod());
+        bool handledByCgi = false;
 
         if (location->hasRedirect()) {
             const Redirect& redir = location->getRedirect();
@@ -785,6 +786,7 @@ void Server::onRequest(int fd, const HttpRequest& req) {
         } else if (req.getMethod() == "POST" && locationHasCgiForUri(*location, req.getURI())) {
             CgiHandler cgiHandler;
             resp = cgiHandler.handle(req, *location);
+            handledByCgi = true;
         } else if (req.getMethod() == "GET" || req.getMethod() == "HEAD") {
             GETHandler getHandler;
             resp = getHandler.handle(req, *location);
@@ -801,7 +803,7 @@ void Server::onRequest(int fd, const HttpRequest& req) {
             resp = buildErrorResponse(501, cfg);
         }
 
-        if (resp.getStatusCode() >= 400) {
+        if (!handledByCgi && resp.getStatusCode() >= 400) {
             int code = resp.getStatusCode();
             HttpResponse errResp = buildErrorResponse(code, cfg);
             if (code == 405)

@@ -52,6 +52,13 @@ static std::string makeAbsolutePath(const std::string& path) {
     return absolute;
 }
 
+static std::string stripQueryString(const std::string& uri) {
+    size_t qpos = uri.find('?');
+    if (qpos == std::string::npos)
+        return uri;
+    return uri.substr(0, qpos);
+}
+
 static void setFdNonBlocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
     if (flags >= 0)
@@ -72,13 +79,6 @@ HttpResponse CgiHandler::handle(const HttpRequest& request,
         return response;
     }
 
-    // 2. 파일 존재 및 실행 권한 확인
-    struct stat st;
-    if (stat(scriptPath.c_str(), &st) != 0) {
-        response.setStatus(404);
-        response.setBody("<h1>404 Not Found</h1>");
-        return response;
-    }
     scriptPath = makeAbsolutePath(scriptPath);
 
     // 3. 인터프리터 결정 (php-cgi, python 등)
@@ -133,7 +133,7 @@ HttpResponse CgiHandler::handle(const HttpRequest& request,
 
 std::map<std::string, std::string> CgiHandler::buildEnv(
     const HttpRequest& request,
-    const LocationConfig& location,
+    const LocationConfig&,
     const std::string& scriptPath) const {
     
     std::map<std::string, std::string> env;
@@ -144,18 +144,15 @@ std::map<std::string, std::string> CgiHandler::buildEnv(
     env["SERVER_PROTOCOL"] = request.getVersion();
     env["SERVER_SOFTWARE"] = "webserv/1.0";
     env["REQUEST_METHOD"] = request.getMethod();
-    env["SCRIPT_NAME"] = request.getURI();
+    const std::string uriPath = stripQueryString(request.getURI());
+    env["SCRIPT_NAME"] = uriPath;
     env["SCRIPT_FILENAME"] = scriptPath;
+    env["REQUEST_URI"] = request.getURI();
     
-    // PATH_INFO와 PATH_TRANSLATED 설정
-    std::string pathInfo = request.getURI();
-    const std::string& locPath = location.getPath();
-    size_t scriptNamePos = pathInfo.find(locPath);
-    if (scriptNamePos != std::string::npos) {
-        pathInfo = pathInfo.substr(scriptNamePos + locPath.size());
-    }
-    env["PATH_INFO"] = pathInfo;
-    env["PATH_TRANSLATED"] = (location.hasRoot() ? location.getRoot() : "") + pathInfo;
+    // The 42 cgi_tester validates that PATH_INFO matches the requested URL
+    // path.  Do not strip the matched location prefix here.
+    env["PATH_INFO"] = uriPath;
+    env["PATH_TRANSLATED"] = scriptPath;
 
     // Query string (URI에 ? 이후)
     size_t qPos = request.getURI().find('?');
