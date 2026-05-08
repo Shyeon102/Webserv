@@ -79,8 +79,8 @@ bool Connection::onWritable() {
     if (n > 0) {
         _outPos += static_cast<size_t>(n);
         touch();
-    } else if (n < 0) {
-        // error → close immediately
+    } else {
+        // error or no progress -> close immediately
         return false;
     }
 

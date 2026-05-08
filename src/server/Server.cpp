@@ -783,7 +783,8 @@ void Server::onRequest(int fd, const HttpRequest& req) {
         } else if (!allowed) {
             resp = buildErrorResponse(405, cfg);
             resp.setHeader("Allow", allowHeader);
-        } else if (req.getMethod() == "POST" && locationHasCgiForUri(*location, req.getURI())) {
+        } else if ((req.getMethod() == "GET" || req.getMethod() == "POST")
+                && locationHasCgiForUri(*location, req.getURI())) {
             CgiHandler cgiHandler;
             resp = cgiHandler.handle(req, *location);
             handledByCgi = true;
