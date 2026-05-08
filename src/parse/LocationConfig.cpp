@@ -19,14 +19,14 @@ LocationConfig::~LocationConfig() {}
 
 void	LocationConfig::handleRoot(const std::vector<Token> &tokens, size_t &i)
 {
-	const Token	&valueToken = directiveSyntaxCheck(tokens, i, "root");
+	Token	valueToken = directiveSyntaxCheck(tokens, i, "root");
 	this->_root = valueToken.value;
 	this->_rootSet = true;
 }
 
 void	LocationConfig::handleAutoindex(const std::vector<Token> &tokens, size_t &i)
 {
-	const Token	&valueToken = directiveSyntaxCheck(tokens, i, "autoindex");
+	Token	valueToken = directiveSyntaxCheck(tokens, i, "autoindex");
 	
 	if (valueToken.value == "on")
 		this->_autoindex = true;
@@ -181,7 +181,7 @@ void	LocationConfig::handleUploadStore(const std::vector<Token>& tokens, size_t&
 	if (this->_hasUploadStore)
 		throw ConfigSemanticException("Error: duplicate upload_store directive");
 
-	const Token&	uploadValue = directiveSyntaxCheck(tokens, i, "upload_store");
+	Token	uploadValue = directiveSyntaxCheck(tokens, i, "upload_store");
 
 	if (uploadValue.value.empty())
 		throw ConfigSemanticException("Error: upload_store path is empty");

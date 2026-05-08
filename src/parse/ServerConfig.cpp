@@ -62,7 +62,7 @@ void	ServerConfig::handleAutoIndex(const std::vector<Token>& tokens, size_t& i)
     if (this->_hasAutoindex)
         throw ConfigSemanticException("Error: duplicate autoindex directive");
 
-    const Token	&valueToken = directiveSyntaxCheck(tokens, i, "autoindex");
+    Token	valueToken = directiveSyntaxCheck(tokens, i, "autoindex");
 
     if (valueToken.value == "on")
         this->_autoindex = true;
@@ -76,7 +76,7 @@ void	ServerConfig::handleAutoIndex(const std::vector<Token>& tokens, size_t& i)
 
 void	ServerConfig::handleListen(const std::vector<Token>& tokens, size_t& i)
 {
-	const Token& value = directiveSyntaxCheck(tokens, i, "listen");
+	Token value = directiveSyntaxCheck(tokens, i, "listen");
 
 	std::string ip;
 	int port;
@@ -93,7 +93,7 @@ void	ServerConfig::handleListen(const std::vector<Token>& tokens, size_t& i)
 
 void	ServerConfig::handleRoot(const std::vector<Token> &tokens, size_t &i)
 {
-	const Token	&pathToken = directiveSyntaxCheck(tokens, i, "root");
+	Token	pathToken = directiveSyntaxCheck(tokens, i, "root");
 	this->_root = pathToken.value;
 }
 
@@ -197,7 +197,7 @@ void	ServerConfig::handleClientMaxBodySize(const std::vector<Token>& tokens, siz
 	if (this->_hasClientMaxBodySize)
 		throw ConfigSemanticException("Error: duplicate client_max_body_size");
 
-	const Token&	sizeValue = directiveSyntaxCheck(tokens, i, "client_max_body_size");
+	Token	sizeValue = directiveSyntaxCheck(tokens, i, "client_max_body_size");
 
 	if (!isNumber(sizeValue.value))
 		throw ConfigSyntaxException("Error: client_max_body_size must be a number");

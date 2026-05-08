@@ -29,8 +29,8 @@ HttpResponse GETHandler::handle(const HttpRequest& request,
     
     // Path Traversal 검증 실패
     if (path.empty()) {
-        response.setStatus(403);
-        response.setBody("<h1>403 Forbidden</h1>");
+        response.setStatus(404);
+        response.setBody("<h1>404 Not Found</h1>");
         return response;
     }
 
@@ -82,8 +82,8 @@ HttpResponse GETHandler::handleDirectory(const std::string& path,
     }
 
     // index도 없고 autoindex도 비활성화
-    response.setStatus(403);
-    response.setBody("<h1>403 Forbidden</h1>");
+    response.setStatus(404);
+    response.setBody("<h1>404 Not Found</h1>");
     return response;
 }
 
@@ -106,7 +106,7 @@ HttpResponse GETHandler::handleFile(const std::string& path,
     if (body.empty() && st.st_size > 0) {
         // 파일이 존재하지만 읽을 수 없음 (권한 문제)
         response.setStatus(403);
-        response.setBody("<h1>403 Forbidden</h1>");
+        response.setBody("<h1>404 Not Found</h1>");
         return response;
     }
 
@@ -233,7 +233,7 @@ std::string GETHandler::generateAutoIndex(const std::string& path,
                                           const std::string& uri) const {
     DIR* dir = opendir(path.c_str());
     if (!dir)
-        return "<h1>403 Forbidden</h1>";
+        return "<h1>404 Not Found</h1>";
 
     std::ostringstream html;
     html << "<!DOCTYPE html>\n";
