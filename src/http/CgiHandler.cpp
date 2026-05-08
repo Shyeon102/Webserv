@@ -23,9 +23,33 @@
 #include <errno.h>
 #include <signal.h>
 #include <vector>
+#include <limits.h>
 
 CgiHandler::CgiHandler() {}
 CgiHandler::~CgiHandler() {}
+
+static bool isAbsolutePath(const std::string& path) {
+    return !path.empty() && path[0] == '/';
+}
+
+static std::string makeAbsolutePath(const std::string& path) {
+    if (path.empty() || isAbsolutePath(path))
+        return path;
+
+    char resolved[PATH_MAX];
+    if (realpath(path.c_str(), resolved) != NULL)
+        return std::string(resolved);
+
+    char cwd[PATH_MAX];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return path;
+
+    std::string absolute(cwd);
+    if (absolute[absolute.size() - 1] != '/')
+        absolute += "/";
+    absolute += path;
+    return absolute;
+}
 
 /* ================= Main Handler ================= */
 
@@ -48,6 +72,7 @@ HttpResponse CgiHandler::handle(const HttpRequest& request,
         response.setBody("<h1>404 Not Found</h1>");
         return response;
     }
+    scriptPath = makeAbsolutePath(scriptPath);
 
     // 3. 인터프리터 결정 (php-cgi, python 등)
     std::string interpreter = getInterpreter(scriptPath, location);
@@ -56,6 +81,7 @@ HttpResponse CgiHandler::handle(const HttpRequest& request,
         response.setBody("<h1>500 Internal Server Error</h1><p>No CGI interpreter configured</p>");
         return response;
     }
+    interpreter = makeAbsolutePath(interpreter);
 
     // 4. CGI 환경 변수 준비
     std::map<std::string, std::string> env = buildEnv(request, location, scriptPath);
