@@ -6,7 +6,7 @@
 /*   By: princessj <princessj@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/12/20 16:24:43 by jaoh              #+#    #+#             */
-/*   Updated: 2026/02/17 02:22:00 by princessj        ###   ########.fr       */
+/*   Updated: 2026/06/12 04:14:49 by princessj        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -102,7 +102,7 @@ void HttpRequest::parseRequestLine(const std::string& line) {
         return ;
     }
     
-    if (version != "HTTP/1.1")
+    if (version != "HTTP/1.1" && version != "HTTP/1.0")
     {
         error = true;
         return ;

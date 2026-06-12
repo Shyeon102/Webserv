@@ -6,7 +6,7 @@
 /*   By: princessj <princessj@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/02/16 22:33:10 by jihyeki2          #+#    #+#             */
-/*   Updated: 2026/02/17 02:35:04 by princessj        ###   ########.fr       */
+/*   Updated: 2026/06/12 04:16:48 by princessj        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -93,7 +93,7 @@ HttpParseResult	HttpRequestValidator::validate(const HttpRequest& request)
         return HttpParseResult(HttpParseResult::PARSE_NEED_MORE, 0, 0);
 
     // 3) HTTP 버전 검사: HTTP/1.1이 아니면 505 HTTP Version Not Supported
-    if (request.getVersion() != "HTTP/1.1")
+    if (request.getVersion() != "HTTP/1.1" && request.getVersion() != "HTTP/1.0")
         return HttpParseResult(HttpParseResult::PARSE_ERROR, 505, 0);
 
     // 4) Host 헤더 필수 (HTTP/1.1)
