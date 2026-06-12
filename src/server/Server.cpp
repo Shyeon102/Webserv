@@ -437,10 +437,10 @@ void    Server::handleClientEvent(size_t idx)
 
                 const ServerConfig& cfg = pickServerConfig(fd, req);
                 size_t maxBodyForRequest = cfg.getClientMaxBodySize();
-                const std::string reqPath = stripQueryString(req.getURI());
-                if (reqPath.find("/post_body") != 0)
-                    maxBodyForRequest = static_cast<size_t>(100) * 1024 * 1024;
-                if (exceedsClientMaxBodySize(req, maxBodyForRequest)) {
+                //const std::string reqPath = stripQueryString(req.getURI());
+                //if (reqPath.find("/post_body") != 0)
+                    //maxBodyForRequest = static_cast<size_t>(100) * 1024 * 1024;
+                if (maxBodyForRequest > 0 && exceedsClientMaxBodySize(req, maxBodyForRequest)) {
                     HttpResponse resp = buildErrorResponse(413, cfg);
                     std::string bytes = resp.toString();
                     conn->queueWrite(bytes);
