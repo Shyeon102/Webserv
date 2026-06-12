@@ -313,12 +313,25 @@ void Server::run() {
             continue;
         }
 
-            handleClientEvent(i);
+            /*handleClientEvent(i);
             // handleClientEvent may remove current index; safest is to just continue without ++i if removed
             // We'll detect by checking i within bounds and revents reset.
+            if (i < _pfds.size() && _pfds[i].revents == 0) ++i;*/
+            int clientFd = _pfds[i].fd;
+            try {
+                handleClientEvent(i);
+            } catch (const std::exception& e) {
+                std::cerr << "Error handling client fd=" << clientFd
+                          << ": " << e.what() << "\n";
+                removeConn(clientFd);
+            } catch (...) {
+                // std::exception이 아닌 별난 예외까지 전부 잡기 (서버는 절대 안 죽게)
+                std::cerr << "Unknown error handling client fd=" << clientFd << "\n";
+                removeConn(clientFd);
+            }
+            // handleClientEvent may remove current index; safest is to just continue without ++i if removed
             if (i < _pfds.size() && _pfds[i].revents == 0) ++i;
         }
-
         for (size_t k = 0; k < _pfds.size(); ++k) _pfds[k].revents = 0;
     }
 }
