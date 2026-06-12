@@ -717,9 +717,26 @@ const ServerConfig& Server::pickDefaultServerConfigForFd(int fd) const {
     return _configs[0];
 }
 
-HttpResponse Server::buildErrorResponse(int code, const ServerConfig& cfg) const {
+/*HttpResponse Server::buildErrorResponse(int code, const ServerConfig& cfg) const {
     std::map<int, std::string> errorPages;
     errorPages[code] = cfg.getErrorPage();
+    return ErrorHandler::buildError(code, errorPages);
+}*/
+
+HttpResponse Server::buildErrorResponse(int code, const ServerConfig& cfg) const {
+    std::map<int, std::string> errorPages;
+    const std::map<int, std::string>& cfgPages = cfg.getErrorPages();
+    std::map<int, std::string>::const_iterator it = cfgPages.find(code);
+    if (it != cfgPages.end()) {
+        std::string root = cfg.getRoot();
+        std::string path = it->second;
+        // root 기준 상대경로로 합치기 (슬래시 중복 방지)
+        if (!root.empty() && root[root.size() - 1] == '/'
+            && !path.empty() && path[0] == '/')
+            errorPages[code] = root + path.substr(1);
+        else
+            errorPages[code] = root + path;
+    }
     return ErrorHandler::buildError(code, errorPages);
 }
 

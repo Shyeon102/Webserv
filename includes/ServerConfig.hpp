@@ -6,7 +6,7 @@
 /*   By: princessj <princessj@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/01/27 17:31:12 by jihyeki2          #+#    #+#             */
-/*   Updated: 2026/03/01 19:09:25 by princessj        ###   ########.fr       */
+/*   Updated: 2026/06/12 19:21:31 by princessj        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -39,6 +39,7 @@ class	ServerConfig
 		const std::vector<LocationConfig>& getLocations(void) const;
 		const std::string&				getRoot(void) const;
 		const std::string&				getErrorPage(void) const;
+		const std::map<int, std::string>&	getErrorPages(void) const;
 		bool							hasServerNames(void) const;
 		const std::vector<std::string>&	getServerNames(void) const;
 		bool							hasMethods(void) const;
