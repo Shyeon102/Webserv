@@ -740,17 +740,6 @@ HttpResponse Server::buildErrorResponse(int code, const ServerConfig& cfg) const
     return ErrorHandler::buildError(code, errorPages);
 }
 
-bool Server::isMethodAllowed(const ServerConfig& cfg, const std::string& method) const {
-    if (!cfg.hasMethods())
-        return true;
-    const std::vector<std::string>& methods = cfg.getMethods();
-    for (size_t i = 0; i < methods.size(); ++i) {
-        if (methods[i] == method)
-            return true;
-    }
-    return false;
-}
-
 void Server::onRequest(int fd, const HttpRequest& req) {
     Connection* conn = _conns[fd];
 
