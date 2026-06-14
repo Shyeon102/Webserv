@@ -68,35 +68,3 @@ const LocationConfig* Router::match(const std::string& uri) const {
 ** 3. allow_methods와 methods가 둘 다 없으면 → GET만 허용
 ** 4. 구현은 GET, POST, DELETE 모두 되어있음 (config는 허용 여부만 결정)
 */
-bool Router::isMethodAllowed(const LocationConfig* loc,
-                             const std::string& method) const {
-    if (!loc)
-        return false;
-
-    // 구현된 메서드만 허용 (GET, POST, DELETE)
-    if (method != "GET" && method != "POST" && method != "DELETE")
-        return false;
-
-    // 1. GET은 항상 허용 ✅
-    if (method == "GET")
-        return true;
-
-    // 2. POST, DELETE는 config 확인
-    const std::vector<std::string>* allowed = NULL;
-    if (loc->hasAllowMethods()) {
-        allowed = &loc->getAllowMethods();
-    } else if (loc->hasMethods()) {
-        allowed = &loc->getMethods();
-    } else {
-        // 3. config가 없으면 POST, DELETE 거부 ✅
-        //    (GET은 위에서 이미 허용됨)
-        return false;
-    }
-
-    // 비어있으면 POST, DELETE 거부
-    if (allowed->empty())
-        return false;
-
-    // 4. 명시적으로 허용된 경우만 허용 ✅
-    return std::find(allowed->begin(), allowed->end(), method) != allowed->end();
-}

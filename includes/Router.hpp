@@ -32,8 +32,6 @@ public:
     // 해당 location에서 HTTP method가 허용되는지 확인
     // 우선순위: allow_methods > methods (legacy fallback)
     // 허용 리스트에 명시된 method만 허용
-    bool isMethodAllowed(const LocationConfig* loc, const std::string& method) const;
-
 private:
     std::vector<LocationConfig> locations;
 };
