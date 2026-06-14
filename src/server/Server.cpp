@@ -313,12 +313,25 @@ void Server::run() {
             continue;
         }
 
-            handleClientEvent(i);
+            /*handleClientEvent(i);
             // handleClientEvent may remove current index; safest is to just continue without ++i if removed
             // We'll detect by checking i within bounds and revents reset.
+            if (i < _pfds.size() && _pfds[i].revents == 0) ++i;*/
+            int clientFd = _pfds[i].fd;
+            try {
+                handleClientEvent(i);
+            } catch (const std::exception& e) {
+                std::cerr << "Error handling client fd=" << clientFd
+                          << ": " << e.what() << "\n";
+                removeConn(clientFd);
+            } catch (...) {
+                // std::exception이 아닌 별난 예외까지 전부 잡기 (서버는 절대 안 죽게)
+                std::cerr << "Unknown error handling client fd=" << clientFd << "\n";
+                removeConn(clientFd);
+            }
+            // handleClientEvent may remove current index; safest is to just continue without ++i if removed
             if (i < _pfds.size() && _pfds[i].revents == 0) ++i;
         }
-
         for (size_t k = 0; k < _pfds.size(); ++k) _pfds[k].revents = 0;
     }
 }
@@ -424,10 +437,10 @@ void    Server::handleClientEvent(size_t idx)
 
                 const ServerConfig& cfg = pickServerConfig(fd, req);
                 size_t maxBodyForRequest = cfg.getClientMaxBodySize();
-                const std::string reqPath = stripQueryString(req.getURI());
-                if (reqPath.find("/post_body") != 0)
-                    maxBodyForRequest = static_cast<size_t>(100) * 1024 * 1024;
-                if (exceedsClientMaxBodySize(req, maxBodyForRequest)) {
+                //const std::string reqPath = stripQueryString(req.getURI());
+                //if (reqPath.find("/post_body") != 0)
+                    //maxBodyForRequest = static_cast<size_t>(100) * 1024 * 1024;
+                if (maxBodyForRequest > 0 && exceedsClientMaxBodySize(req, maxBodyForRequest)) {
                     HttpResponse resp = buildErrorResponse(413, cfg);
                     std::string bytes = resp.toString();
                     conn->queueWrite(bytes);
@@ -704,9 +717,26 @@ const ServerConfig& Server::pickDefaultServerConfigForFd(int fd) const {
     return _configs[0];
 }
 
-HttpResponse Server::buildErrorResponse(int code, const ServerConfig& cfg) const {
+/*HttpResponse Server::buildErrorResponse(int code, const ServerConfig& cfg) const {
     std::map<int, std::string> errorPages;
     errorPages[code] = cfg.getErrorPage();
+    return ErrorHandler::buildError(code, errorPages);
+}*/
+
+HttpResponse Server::buildErrorResponse(int code, const ServerConfig& cfg) const {
+    std::map<int, std::string> errorPages;
+    const std::map<int, std::string>& cfgPages = cfg.getErrorPages();
+    std::map<int, std::string>::const_iterator it = cfgPages.find(code);
+    if (it != cfgPages.end()) {
+        std::string root = cfg.getRoot();
+        std::string path = it->second;
+        // root 기준 상대경로로 합치기 (슬래시 중복 방지)
+        if (!root.empty() && root[root.size() - 1] == '/'
+            && !path.empty() && path[0] == '/')
+            errorPages[code] = root + path.substr(1);
+        else
+            errorPages[code] = root + path;
+    }
     return ErrorHandler::buildError(code, errorPages);
 }
 

@@ -6,7 +6,7 @@
 /*   By: princessj <princessj@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/01/27 17:31:47 by jihyeki2          #+#    #+#             */
-/*   Updated: 2026/03/01 19:25:37 by princessj        ###   ########.fr       */
+/*   Updated: 2026/06/12 19:23:22 by princessj        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -470,6 +470,11 @@ const std::string& ServerConfig::getRoot() const
 const std::string& ServerConfig::getErrorPage() const
 {
 	return this->_errorPage;
+}
+
+const std::map<int, std::string>& ServerConfig::getErrorPages() const
+{
+	return this->_errorPages;
 }
 
 const std::vector<LocationConfig>& ServerConfig::getLocations() const

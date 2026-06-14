@@ -1,10 +1,12 @@
 #include <iostream>
 #include <string>
+#include <csignal>
 #include "Config.hpp"
 #include "Server.hpp"
 
 int main(int argc, char* argv[])
 {
+    signal(SIGPIPE, SIG_IGN); // 추가: 클라이언트가 갑자기 끊겨도 서버가 안 죽게
     const std::string configPath = (argc > 1) ? argv[1] : DEFAULT_CONFIG_PATH;
 
     try {

@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   CgiHandler.cpp                                     :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: jaoh <jaoh@student.42.fr>                  +#+  +:+       +#+        */
+/*   By: princessj <princessj@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/02/12 00:59:22 by jaoh              #+#    #+#             */
-/*   Updated: 2026/02/12 00:59:33 by jaoh             ###   ########.fr       */
+/*   Updated: 2026/06/12 03:31:59 by princessj        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -320,7 +320,7 @@ std::string CgiHandler::executeCgi(
 
         int ready = poll(fds, nfds, 100);
         if (ready < 0) {
-            if (errno == EINTR)
+            if (errno == EINTR) // 이건 ok 감점아님: 금지되는 건 정확히 "read/write/recv/send 다음의 errno. poll()다음의 errno 허용
                 continue;
             if (stdinOpen)
                 close(pipeIn[1]);
@@ -338,7 +338,7 @@ std::string CgiHandler::executeCgi(
         for (int i = 0; i < nfds; ++i) {
             if (stdoutOpen && fds[i].fd == pipeOut[0] && (fds[i].revents & (POLLIN | POLLHUP | POLLERR))) {
                 char buffer[4096];
-                while (true) {
+                /*while (true) {
                     ssize_t bytesRead = read(pipeOut[0], buffer, sizeof(buffer));
                     if (bytesRead > 0) {
                         output.append(buffer, bytesRead);
@@ -347,12 +347,20 @@ std::string CgiHandler::executeCgi(
                         stdoutOpen = false;
                         break;
                     } else {
-                        if (errno == EAGAIN || errno == EWOULDBLOCK)
+                        if (errno == EAGAIN || errno == EWOULDBLOCK) // 이거 쓰면 안됨. 감점
                             break;
                         close(pipeOut[0]);
                         stdoutOpen = false;
                         break;
                     }
+                }*/
+                ssize_t bytesRead = read(pipeOut[0], buffer, sizeof(buffer));
+                if (bytesRead > 0) {
+                    output.append(buffer, bytesRead);
+                } else {
+                    // EOF(0)든 에러(<0)든 둘 다 읽기 종료: errno 안 봄
+                    close(pipeOut[0]);
+                    stdoutOpen = false;
                 }
             }
 
@@ -368,12 +376,18 @@ std::string CgiHandler::executeCgi(
                 ssize_t written = write(pipeIn[1], body.c_str() + totalWritten, chunk);
                 if (written > 0) {
                     totalWritten += static_cast<size_t>(written);
-                } else if (written < 0) {
-                    if (errno == EAGAIN || errno == EWOULDBLOCK)
+                } /*else if (written < 0) {
+                    if (errno == EAGAIN || errno == EWOULDBLOCK) // 감점
                         continue;
                     close(pipeIn[1]);
                     stdinOpen = false;
-                }
+                }*/
+               else
+               {
+                // 더 못 씀 -> stdin 닫기 (errno 안 봄)
+                close(pipeIn[1]);
+                stdinOpen = false;
+               } 
             }
         }
     }

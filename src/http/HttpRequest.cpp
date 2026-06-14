@@ -6,7 +6,7 @@
 /*   By: princessj <princessj@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/12/20 16:24:43 by jaoh              #+#    #+#             */
-/*   Updated: 2026/02/17 02:22:00 by princessj        ###   ########.fr       */
+/*   Updated: 2026/06/12 04:23:21 by princessj        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -102,7 +102,7 @@ void HttpRequest::parseRequestLine(const std::string& line) {
         return ;
     }
     
-    if (version != "HTTP/1.1")
+    if (version != "HTTP/1.1" && version != "HTTP/1.0")
     {
         error = true;
         return ;
@@ -250,10 +250,9 @@ bool HttpRequest::parseChunkedBody() {
             return false;
         }
 
-        // CHECK) 16진수 검사
         for (size_t i = 0; i < hexSize.size(); ++i)
         {
-            if (!std::isxdigit(hexSize[i]))
+            if (!std::isxdigit(static_cast<unsigned char>(hexSize[i])))
             {
                 error = true;
                 return false;
@@ -311,10 +310,10 @@ bool HttpRequest::parseChunkedBody() {
 
 std::string HttpRequest::trim(const std::string& s) const {
     size_t start = 0;
-    while (start < s.size() && std::isspace(s[start]))
+    while (start < s.size() && std::isspace(static_cast<unsigned char>(s[start])))
         start++;
     size_t end = s.size();
-    while (end > start && std::isspace(s[end - 1]))
+    while (end > start && std::isspace(static_cast<unsigned char>(s[end - 1])))
         end--;
     return s.substr(start, end - start);
 }
@@ -322,7 +321,7 @@ std::string HttpRequest::trim(const std::string& s) const {
 std::string HttpRequest::toLower(const std::string& s) const {
     std::string r;
     for (size_t i = 0; i < s.size(); i++)
-        r += std::tolower(s[i]);
+        r += std::tolower(static_cast<unsigned char>(s[i]));
     return r;
 }
 
