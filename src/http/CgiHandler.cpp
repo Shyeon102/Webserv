@@ -29,27 +29,8 @@
 CgiHandler::CgiHandler() {}
 CgiHandler::~CgiHandler() {}
 
-static bool isAbsolutePath(const std::string& path) {
-    return !path.empty() && path[0] == '/';
-}
-
 static std::string makeAbsolutePath(const std::string& path) {
-    if (path.empty() || isAbsolutePath(path))
-        return path;
-
-    char resolved[PATH_MAX];
-    if (realpath(path.c_str(), resolved) != NULL)
-        return std::string(resolved);
-
-    char cwd[PATH_MAX];
-    if (getcwd(cwd, sizeof(cwd)) == NULL)
-        return path;
-
-    std::string absolute(cwd);
-    if (absolute[absolute.size() - 1] != '/')
-        absolute += "/";
-    absolute += path;
-    return absolute;
+    return path;
 }
 
 static std::string stripQueryString(const std::string& uri) {
@@ -562,8 +543,8 @@ bool CgiHandler::waitWithTimeout(pid_t pid, int& status, int timeoutSec) const {
             return true;
         if (result < 0)
             return false;
-        
-        usleep(100000); // 100ms
+
+        poll(NULL, 0, 100);
     }
     
     return false;

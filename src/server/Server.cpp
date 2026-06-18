@@ -21,13 +21,10 @@
 #include <sys/wait.h>
 #include <signal.h>
 
-#include <stdio.h> // for perror but we can change to strerror
-// perror를 사용해도 되는지 확인
 static void fatal(const char* msg) {
-    perror(msg);
+    std::cerr << msg << ": " << strerror(errno) << "\n";
     std::exit(1);
 }
-// strerror로 교체하기 
 
 static std::string stripQueryString(const std::string& uri) {
     size_t qpos = uri.find('?');
@@ -370,7 +367,7 @@ void Server::acceptLoop(int listenFd) {
         int cfd = ::accept(listenFd, NULL, NULL);
         if (cfd < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) return;
-            perror("accept"); // TODO strerror로 수정. fatal 함수 있는데 왜 ? 이거를 썼지 ?
+            std::cerr << "accept: " << strerror(errno) << "\n";
             return;
         }
 

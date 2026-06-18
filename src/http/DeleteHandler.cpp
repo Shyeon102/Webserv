@@ -66,17 +66,8 @@ HttpResponse DELETEHandler::handle(const HttpRequest& request,
         return res;
     }
 
-    // 7. 실제 삭제 수행
-    if (!deleteFile(path)) {
-        // 삭제 실패 (권한, I/O 에러 등)
-        res.setStatus(500);
-        res.setBody("<h1>500 Internal Server Error</h1><p>Failed to delete file</p>");
-        return res;
-    }
-
-    // 8. 성공: 204 No Content (권장) 또는 200 OK
-    res.setStatus(204);
-    res.setBody(""); // No Content
+    res.setStatus(501);
+    res.setBody("<h1>501 Not Implemented</h1><p>DELETE is disabled in this build</p>");
     return res;
 }
 
@@ -166,44 +157,18 @@ bool DELETEHandler::canDelete(const std::string& path) const {
 }
 
 bool DELETEHandler::isPathSafe(const std::string& path) const {
-    // 1. ".." 체크
     if (path.find("..") != std::string::npos)
         return false;
-    
-    // 2. Null byte 체크
     if (path.find('\0') != std::string::npos)
         return false;
-    
-    // 3. 연속 슬래시 (정규화되지 않은 경로)
     if (path.find("//") != std::string::npos)
         return false;
-    
-    // 4. 심볼릭 링크 체크 (선택적 - 심볼릭 링크를 통한 삭제 방지)
-    struct stat st;
-    if (lstat(path.c_str(), &st) == 0) {
-        if (S_ISLNK(st.st_mode)) {
-            // 심볼릭 링크 삭제를 허용하지 않으려면 false 반환
-            // 허용하려면 이 부분 제거
-            return false;
-        }
-    }
-    
     return true;
 }
 
 /* ================= Delete Operation ================= */
 
 bool DELETEHandler::deleteFile(const std::string& path) const {
-    // unlink() 호출
-    if (unlink(path.c_str()) != 0) {
-        // 삭제 실패
-        // errno를 확인하여 실패 원인 파악 가능
-        // EACCES: 권한 없음
-        // EBUSY: 파일이 사용 중
-        // EROFS: 읽기 전용 파일 시스템
-        // etc.
-        return false;
-    }
-    
-    return true;
+    (void)path;
+    return false;
 }
