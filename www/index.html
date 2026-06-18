@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>webserv test page</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            color: #222;
+            background: #f6f7f9;
+        }
+
+        main {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 32px 18px;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 28px;
+        }
+
+        p {
+            margin: 0 0 20px;
+            color: #555;
+        }
+
+        section {
+            margin-top: 16px;
+            padding: 18px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: #fff;
+        }
+
+        h2 {
+            margin: 0 0 12px;
+            font-size: 18px;
+        }
+
+        .row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+
+        a,
+        button {
+            display: inline-block;
+            padding: 9px 12px;
+            border: 1px solid #222;
+            border-radius: 6px;
+            color: #222;
+            background: #fff;
+            text-decoration: none;
+            font: inherit;
+            cursor: pointer;
+        }
+
+        a:hover,
+        button:hover {
+            background: #222;
+            color: #fff;
+        }
+
+        input[type="text"],
+        input[type="file"] {
+            max-width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            background: #fff;
+        }
+
+        code {
+            display: block;
+            margin-top: 10px;
+            padding: 10px;
+            overflow-x: auto;
+            border-radius: 6px;
+            background: #f0f1f3;
+            color: #333;
+            white-space: nowrap;
+        }
+
+        pre {
+            min-height: 80px;
+            margin: 12px 0 0;
+            padding: 12px;
+            overflow-x: auto;
+            border-radius: 6px;
+            background: #111;
+            color: #e8e8e8;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>webserv test page</h1>
+        <p>www.conf 기준으로 static, autoindex, upload, redirect, method 제한을 확인합니다.</p>
+
+        <section>
+            <h2>GET / static / autoindex / redirect</h2>
+            <div class="row">
+                <a href="/">GET /</a>
+                <a href="/static/">static index</a>
+                <a href="/listing/">autoindex on</a>
+                <a href="/noindex/">autoindex off</a>
+                <a href="/redirect/42-intra">redirect 42 intra</a>
+            </div>
+            <code>curl -i http://localhost:8080/</code>
+        </section>
+
+        <section>
+            <h2>Upload</h2>
+            <form action="/upload/" method="post" enctype="multipart/form-data">
+                <div class="row">
+                    <input type="file" name="file">
+                    <button type="submit">POST file</button>
+                </div>
+            </form>
+            <code>curl -i -F "file=@www/index.html" http://localhost:8080/upload/</code>
+        </section>
+
+        <section>
+            <h2>Method test</h2>
+            <div class="row">
+                <input id="target" type="text" value="/method/" aria-label="test path">
+                <button type="button" onclick="send('GET')">GET</button>
+                <button type="button" onclick="send('POST')">POST</button>
+                <button type="button" onclick="send('DELETE')">DELETE</button>
+                <button type="button" onclick="send('HEAD')">HEAD</button>
+            </div>
+            <pre id="result">result</pre>
+        </section>
+    </main>
+
+    <script>
+        async function send(method) {
+            const target = document.getElementById('target').value || '/';
+            const result = document.getElementById('result');
+            const options = { method: method };
+
+            if (method === 'POST') {
+                options.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+                options.body = 'name=webserv&message=hello';
+            }
+
+            result.textContent = method + ' ' + target + ' ...';
+
+            try {
+                const response = await fetch(target, options);
+                const text = method === 'HEAD' ? '' : await response.text();
+                result.textContent =
+                    method + ' ' + target + '\n' +
+                    response.status + ' ' + response.statusText + '\n\n' +
+                    text.slice(0, 1200);
+            } catch (error) {
+                result.textContent = String(error);
+            }
+        }
+    </script>
+</body>
+</html>
