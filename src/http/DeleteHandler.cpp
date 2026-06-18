@@ -66,8 +66,15 @@ HttpResponse DELETEHandler::handle(const HttpRequest& request,
         return res;
     }
 
-    res.setStatus(501);
-    res.setBody("<h1>501 Not Implemented</h1><p>DELETE is disabled in this build</p>");
+    // 7. 실제 삭제 수행
+    if (!deleteFile(path)) {
+        res.setStatus(500);
+        res.setBody("<h1>500 Internal Server Error</h1><p>Failed to delete file</p>");
+        return res;
+    }
+
+    res.setStatus(204);
+    res.setBody("");
     return res;
 }
 
@@ -169,6 +176,7 @@ bool DELETEHandler::isPathSafe(const std::string& path) const {
 /* ================= Delete Operation ================= */
 
 bool DELETEHandler::deleteFile(const std::string& path) const {
-    (void)path;
-    return false;
+    if (unlink(path.c_str()) != 0)
+        return false;
+    return true;
 }
