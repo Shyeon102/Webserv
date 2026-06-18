@@ -27,6 +27,7 @@ void Connection::queueWrite(const std::string& bytes) {
 }
 
 bool Connection::hasPendingWrite() const { return _outPos < _out.size(); }
+// _outPos가 _out.size보다 작다는건 아직 데이터를 보내는 중이다. 라는거니까.
 
 void Connection::closeAfterWrite() {
     _closeAfterWrite = true;
