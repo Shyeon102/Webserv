@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   HttpResponse.cpp                                   :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: jaoh <jaoh@student.42.fr>                  +#+  +:+       +#+        */
+/*   By: princessj <princessj@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/12/20 16:27:49 by jaoh              #+#    #+#             */
-/*   Updated: 2026/02/13 12:28:35 by jaoh             ###   ########.fr       */
+/*   Updated: 2026/06/18 16:50:00 by princessj        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -75,7 +75,9 @@ std::string HttpResponse::getStatusMessage(int code) const {
         case 200: return "OK";
         case 201: return "Created";
         case 204: return "No Content";
+        case 300: return "Multiple Choices";
         case 301: return "Moved Permanently";
+        case 303: return "See Other";
         case 302: return "Found";
         case 304: return "Not Modified";
         case 307: return "Temporary Redirect";

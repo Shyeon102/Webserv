@@ -6,7 +6,7 @@
 /*   By: princessj <princessj@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/01/25 16:04:02 by jihyeki2          #+#    #+#             */
-/*   Updated: 2026/02/10 17:39:54 by princessj        ###   ########.fr       */
+/*   Updated: 2026/06/17 20:48:00 by princessj        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -67,6 +67,10 @@ class	Config
 		void	handleGlobalState(ParserContext& ctx);
 		void	handleServerState(ParserContext& ctx);
 		void	handleLocationState(ParserContext& ctx);
+
+		/* cross-block 검증: 모든 server block 파싱이 끝난 뒤 호출 */
+		void	checkDuplicateServer(void) const;
+		void	validateGlobalSettings(void) const; // const: _servers를 읽기만 하기 때문 (getIdleTimeout() 등 getter가 전부 const라 문제 없음)
 
 		/* utils */
 		std::string	openConfigFile(const std::string& filePath); // 내부 준비 작업이므로 private

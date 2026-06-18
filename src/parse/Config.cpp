@@ -6,7 +6,7 @@
 /*   By: princessj <princessj@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/01/25 16:03:47 by jihyeki2          #+#    #+#             */
-/*   Updated: 2026/02/10 17:46:25 by princessj        ###   ########.fr       */
+/*   Updated: 2026/06/17 20:50:08 by princessj        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -48,6 +48,10 @@ void	Config::configParse()
 		}
 		throw ;
 	}
+	
+	checkDuplicateServer();   // 블록 간 listen 주소 중복(가상호스트 아닌 진짜 중복) 검사
+	validateGlobalSettings(); // 모든 server block 파싱,기본값 적용 끝난 뒤 전역 정책 일치 검사
+	// try/catch는 파싱 중 currentLocation(힙 포인터) 정리용. 루프가 정상 종료된 시점엔 정리할 게 없음 그래서 catch 밖에 두기
 }
 
 /* state handlers */
@@ -202,4 +206,77 @@ std::string	Config::openConfigFile(const std::string &filePath)
 	configFile.close(); // ifstream은 scope 종료시 자동 close (but 명시적으로 닫는 습관 만들기)
 	
 	return buffer.str();
+}
+
+/*	validateGlobalSettings(): idle_timeout, write_timeout, keepalive_max,
+	max_connections는 커넥션 런타임 정책이라 프로세스 전역으로 하나만 적용됨
+	실제 런타임은 _configs[0](첫 블록)만 사용하므로, 블록마다 값이 다르면
+	conf에 적힌 값과 실제 동작이 어긋난다(silent mismatch). 시작 시점에 막는다. */
+void	Config::validateGlobalSettings(void) const
+{
+	if (this->_servers.size() < 2) // 0개거나 1개면 비교 대상 없음 (_servers[0] 접근 방지)
+		return ;
+
+	const ServerConfig&	first = this->_servers[0];
+	for (size_t i = 1; i < this->_servers.size(); ++i)
+	{
+		if (this->_servers[i].getIdleTimeout() != first.getIdleTimeout())
+			throw ConfigSemanticException("Error: idle_timeout must be identical across all server blocks");
+		if (this->_servers[i].getWriteTimeout() != first.getWriteTimeout())
+			throw ConfigSemanticException("Error: write_timeout must be identical across all server blocks");
+		if (this->_servers[i].getKeepAliveMax() != first.getKeepAliveMax())
+			throw ConfigSemanticException("Error: keepalive_max must be identical across all server blocks");
+		if (this->_servers[i].getMaxConnections() != first.getMaxConnections())
+			throw ConfigSemanticException("Error: max_connections must be identical across all server blocks");
+	}
+}
+
+/* 두 server 블록이 같은 ip:port를 하나라도 공유하는지 */
+static bool	sharesListenAddress(const ServerConfig& a, const ServerConfig& b)
+{
+	const std::vector<ServerConfig::ListenAddress>& la = a.getListenAddresses();
+	const std::vector<ServerConfig::ListenAddress>& lb = b.getListenAddresses();
+	for (size_t i = 0; i < la.size(); ++i)
+		for (size_t j = 0; j < lb.size(); ++j)
+			if (la[i].ip == lb[j].ip && la[i].port == lb[j].port) // ip:port 쌍 전체 비교
+				return true;
+	return false;
+}
+
+/* 두 server 블록의 server_name이 하나라도 겹치는지 */
+static bool	serverNamesOverlap(const ServerConfig& a, const ServerConfig& b)
+{
+	if (!a.hasServerNames() || !b.hasServerNames())
+		return false;
+	const std::vector<std::string>& na = a.getServerNames();
+	const std::vector<std::string>& nb = b.getServerNames();
+	for (size_t i = 0; i < na.size(); ++i)
+		for (size_t j = 0; j < nb.size(); ++j)
+			if (na[i] == nb[j])
+				return true;
+	return false;
+}
+
+/*	checkDuplicateServer(): 서로 다른 server 블록이 같은 ip:port를 공유할 때,
+	server_name으로 구분이 안 되면 모호한 중복이라 거부한다.
+	- 같은 ip:port + server_name 다름        -> 가상호스트(정상)
+	- 같은 ip:port + 둘 다 server_name 없음  -> 거부
+	- 같은 ip:port + server_name 겹침         -> 거부
+	- 다른 ip:port (포트만 같고 ip 다른 것 포함) -> 무관(정상) */
+void	Config::checkDuplicateServer(void) const
+{
+	for (size_t i = 0; i < this->_servers.size(); ++i)
+	{
+		for (size_t j = i + 1; j < this->_servers.size(); ++j)
+		{
+			if (!sharesListenAddress(this->_servers[i], this->_servers[j]))
+				continue ;
+
+			if (!this->_servers[i].hasServerNames() && !this->_servers[j].hasServerNames())
+				throw ConfigSemanticException("Error: duplicate server: same listen address without server_name");
+
+			if (serverNamesOverlap(this->_servers[i], this->_servers[j]))
+				throw ConfigSemanticException("Error: duplicate server: same listen address and server_name");
+		}
+	}
 }

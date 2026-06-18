@@ -6,7 +6,7 @@
 /*   By: princessj <princessj@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/01/26 22:35:52 by jihyeki2          #+#    #+#             */
-/*   Updated: 2026/02/08 14:44:34 by jihyeki2         ###   ########.fr       */
+/*   Updated: 2026/06/18 15:40:23 by princessj        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -25,7 +25,14 @@ std::vector<Token>	ConfigTokenizer::tokenize(const std::string &content)
 			i++;
 			continue ;
 		}
-		// 2) 기호 토큰
+		// 2) 주석처리: '#'부터 줄 끝(\n)까지 무시 (어디서 시작하든)
+		else if (content[i] == '#')
+		{
+			while (i < content.size() && content[i] != '\n')
+				i++;
+			continue ;
+		}
+		// 3) 기호 토큰
 		else if (content[i] == '{')
 		{
 			tokens.push_back(Token()); // tokens은 Token 타입 vector이기 때문에 Token을 넣어줘야함
@@ -47,14 +54,14 @@ std::vector<Token>	ConfigTokenizer::tokenize(const std::string &content)
 			tokens.back().value = ";";
 			i++;
 		}
-		// 3) WORD 토큰
+		// 4) WORD 토큰 ('#'단어도 경계: 단어 중간 주석도 처리)
 		else
 		{
 			size_t	start = i;
 			
 			while (i < content.size() && !std::isspace(content[i])
 				&& content[i] != '{' && content[i] != '}'
-				&& content[i] != ';')
+				&& content[i] != ';' && content[i] != '#')
 				i++;
 			
 			tokens.push_back(Token());
@@ -62,7 +69,7 @@ std::vector<Token>	ConfigTokenizer::tokenize(const std::string &content)
 			tokens.back().value = content.substr(start, (i - start));
 		}
 	}
-	// 4) EOF
+	// 5) EOF
 	tokens.push_back(Token());
 	tokens.back().type = TOKEN_EOF;
 	tokens.back().value = "";
