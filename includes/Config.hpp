@@ -6,14 +6,14 @@
 /*   By: princessj <princessj@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/01/25 16:04:02 by jihyeki2          #+#    #+#             */
-/*   Updated: 2026/06/17 20:48:00 by princessj        ###   ########.fr       */
+/*   Updated: 2026/06/19 00:59:37 by jihyeki2         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #ifndef CONFIG_HPP
 #define CONFIG_HPP
 
-#define DEFAULT_CONFIG_PATH "./configuration.txt"
+#define DEFAULT_CONFIG_PATH "./www.conf"
 
 #include "Token.hpp"
 #include "ConfigTokenizer.hpp"
