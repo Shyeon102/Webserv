@@ -3,7 +3,7 @@
 #include <sys/socket.h>
 
 Connection::Connection(int fd)
-: _fd(fd), _state(READING), _outPos(0), _closeAfterWrite(false),
+: _fd(fd), _state(READING), _outPos(0), _closeAfterWrite(false), _waitingForCgi(false),
   _lastActive(std::time(NULL)), _requestsHandled(0) {}
 
 Connection::~Connection() {
@@ -39,6 +39,8 @@ void Connection::closeAfterWrite() {
     }
 }
 bool Connection::shouldCloseAfterWrite() const { return _closeAfterWrite; }
+void Connection::setWaitingForCgi(bool waiting) { _waitingForCgi = waiting; }
+bool Connection::isWaitingForCgi() const { return _waitingForCgi; }
 
 void Connection::touch() { _lastActive = std::time(NULL); }
 std::time_t Connection::lastActive() const { return _lastActive; }

@@ -106,7 +106,7 @@ HttpResponse GETHandler::handleFile(const std::string& path,
     if (body.empty() && st.st_size > 0) {
         // 파일이 존재하지만 읽을 수 없음 (권한 문제)
         response.setStatus(403);
-        response.setBody("<h1>404 Not Found</h1>");
+        response.setBody("<h1>403 Forbidden</h1>");
         return response;
     }
 
@@ -260,7 +260,7 @@ std::string GETHandler::generateAutoIndex(const std::string& path,
     struct dirent* entry;
     while ((entry = readdir(dir))) {
         std::string name(entry->d_name);
-        if (name == ".")
+        if (name == "." || name == "..")
             continue;
 
         std::string fullPath = path;

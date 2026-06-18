@@ -7,6 +7,7 @@
 #include <ctime>
 #include <poll.h>
 #include <set>
+#include <sys/types.h>
 
 #include "Connection.hpp"
 #include "HttpRequest.hpp"
@@ -30,11 +31,34 @@ private:
     int _idleTimeoutSec;
     int _writeTimeoutSec;
     int _maxKeepAlive;
+    int _cgiTimeoutSec;
 
     std::vector<pollfd> _pfds;               // [0..n) 리스너, 이후 클라이언트
     std::map<int, Connection*> _conns;       // fd -> Connection*
     std::map<int, int> _listenFdToPort;      // listen fd -> port
     std::map<int, int> _clientPort;          // client fd -> accepted listen port
+    struct CgiTask {
+        int clientFd;
+        pid_t pid;
+        int stdinFd;
+        int stdoutFd;
+        std::string requestBody;
+        size_t bodySent;
+        std::string output;
+        std::time_t startedAt;
+        bool stdinClosed;
+        bool stdoutClosed;
+        bool childExited;
+        int exitStatus;
+        bool keepAlive;
+        std::string method;
+        const ServerConfig* cfg;
+        CgiTask() : clientFd(-1), pid(-1), stdinFd(-1), stdoutFd(-1), bodySent(0),
+            startedAt(0), stdinClosed(true), stdoutClosed(true), childExited(false),
+            exitStatus(0), keepAlive(false), cfg(NULL) {}
+    };
+    std::map<int, CgiTask*> _cgiByFd;
+    std::map<int, CgiTask*> _cgiByClientFd;
 
     // simple in-memory session store
     struct Session {
@@ -51,11 +75,14 @@ private:
 
     void acceptLoop(int listenFd);
     void handleClientEvent(size_t idx);
+    void handleCgiEvent(size_t idx);
 
     void updatePollEventsFor(int fd);
     void removeConn(int fd);
+    void removePollFd(int fd);
 
     void sweepTimeouts();
+    void sweepCgiTasks();
 
     // request/response flow
     void onRequest(int fd, const HttpRequest& req);
@@ -69,6 +96,20 @@ private:
     Session& getOrCreateSession(const HttpRequest& req, HttpResponse& resp);
 
     bool isListenFd(int fd) const;
+    bool isCgiFd(int fd) const;
+    bool startCgiTask(int clientFd,
+                      const HttpRequest& req,
+                      const LocationConfig& location,
+                      const ServerConfig& cfg,
+                      bool keepAlive);
+    void checkCgiChildExit(CgiTask* task);
+    void feedCgiTask(CgiTask* task);
+    void drainCgiTask(CgiTask* task);
+    bool isCgiTaskFinished(CgiTask* task) const;
+    void finalizeCgiTask(CgiTask* task);
+    void failCgiTask(CgiTask* task, int statusCode);
+    void closeCgiFd(CgiTask* task, int fd);
+    void destroyCgiTask(CgiTask* task);
 };
 
 #endif

@@ -67,49 +67,103 @@ static void setFdNonBlocking(int fd) {
 
 /* ================= Main Handler ================= */
 
-HttpResponse CgiHandler::handle(const HttpRequest& request,
-                                const LocationConfig& location) {
-    HttpResponse response;
-
-    // 1. 스크립트 경로 빌드
-    std::string scriptPath = buildScriptPath(request.getURI(), location);
+bool CgiHandler::prepare(const HttpRequest& request,
+                         const LocationConfig& location,
+                         std::string& scriptPath,
+                         std::string& interpreter,
+                         std::map<std::string, std::string>& env,
+                         HttpResponse& errorResponse) const {
+    scriptPath = buildScriptPath(request.getURI(), location);
     if (scriptPath.empty()) {
-        response.setStatus(403);
-        response.setBody("<h1>403 Forbidden</h1>");
-        return response;
+        errorResponse.setStatus(403);
+        errorResponse.setBody("<h1>403 Forbidden</h1>");
+        return false;
     }
 
     scriptPath = makeAbsolutePath(scriptPath);
 
-    // 3. 인터프리터 결정 (php-cgi, python 등)
-    std::string interpreter = getInterpreter(scriptPath, location);
+    interpreter = getInterpreter(scriptPath, location);
     if (interpreter.empty()) {
-        response.setStatus(500);
-        response.setBody("<h1>500 Internal Server Error</h1><p>No CGI interpreter configured</p>");
-        return response;
+        errorResponse.setStatus(500);
+        errorResponse.setBody("<h1>500 Internal Server Error</h1><p>No CGI interpreter configured</p>");
+        return false;
     }
     interpreter = makeAbsolutePath(interpreter);
 
-    // 4. CGI 환경 변수 준비
-    std::map<std::string, std::string> env = buildEnv(request, location, scriptPath);
+    env = buildEnv(request, location, scriptPath);
+    return true;
+}
 
-    // 5. CGI 실행
-    std::string output;
-    try {
-        output = executeCgi(scriptPath, interpreter, env, request.getBody());
-    } catch (const std::exception&) {
-        response.setStatus(502);
-        response.setBody("<h1>502 Bad Gateway</h1><p>CGI execution failed</p>");
-        return response;
+pid_t CgiHandler::spawn(const std::string& scriptPath,
+                        const std::string& interpreter,
+                        const std::map<std::string, std::string>& env,
+                        int& stdinFd,
+                        int& stdoutFd) const {
+    int pipeIn[2];
+    int pipeOut[2];
+
+    if (pipe(pipeIn) < 0 || pipe(pipeOut) < 0)
+        throw std::runtime_error("pipe failed");
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(pipeIn[0]); close(pipeIn[1]);
+        close(pipeOut[0]); close(pipeOut[1]);
+        throw std::runtime_error("fork failed");
     }
 
-    // 6. CGI 출력 파싱
+    if (pid == 0) {
+        dup2(pipeIn[0], STDIN_FILENO);
+        dup2(pipeOut[1], STDOUT_FILENO);
+
+        close(pipeIn[0]); close(pipeIn[1]);
+        close(pipeOut[0]); close(pipeOut[1]);
+
+        std::vector<std::string> envStrings;
+        std::vector<char*> envp;
+        envStrings.reserve(env.size());
+        envp.reserve(env.size() + 1);
+        for (std::map<std::string, std::string>::const_iterator it = env.begin();
+             it != env.end(); ++it) {
+            envStrings.push_back(it->first + "=" + it->second);
+        }
+        for (size_t i = 0; i < envStrings.size(); ++i)
+            envp.push_back(const_cast<char*>(envStrings[i].c_str()));
+        envp.push_back(NULL);
+
+        size_t lastSlash = scriptPath.find_last_of('/');
+        if (lastSlash != std::string::npos) {
+            std::string dir = scriptPath.substr(0, lastSlash);
+            if (chdir(dir.c_str()) < 0)
+                exit(1);
+        }
+
+        char* argv[3];
+        argv[0] = const_cast<char*>(interpreter.c_str());
+        argv[1] = const_cast<char*>(scriptPath.c_str());
+        argv[2] = NULL;
+        execve(interpreter.c_str(), argv, &envp[0]);
+        exit(1);
+    }
+
+    close(pipeIn[0]);
+    close(pipeOut[1]);
+    setFdNonBlocking(pipeIn[1]);
+    setFdNonBlocking(pipeOut[0]);
+    signal(SIGPIPE, SIG_IGN);
+
+    stdinFd = pipeIn[1];
+    stdoutFd = pipeOut[0];
+    return pid;
+}
+
+HttpResponse CgiHandler::buildResponse(const std::string& output) const {
+    HttpResponse response;
+
     std::map<std::string, std::string> cgiHeaders;
     std::string body;
     parseCgiOutput(output, cgiHeaders, body);
 
-    // 7. 응답 구성
-    // Status 헤더가 있으면 사용, 없으면 200
     if (cgiHeaders.count("status")) {
         int code = std::atoi(cgiHeaders["status"].c_str());
         response.setStatus(code > 0 ? code : 200);
@@ -127,6 +181,26 @@ HttpResponse CgiHandler::handle(const HttpRequest& request,
 
     response.setBody(body);
     return response;
+}
+
+HttpResponse CgiHandler::handle(const HttpRequest& request,
+                                const LocationConfig& location) {
+    HttpResponse response;
+    std::string scriptPath;
+    std::string interpreter;
+    std::map<std::string, std::string> env;
+    if (!prepare(request, location, scriptPath, interpreter, env, response))
+        return response;
+
+    std::string output;
+    try {
+        output = executeCgi(scriptPath, interpreter, env, request.getBody());
+    } catch (const std::exception&) {
+        response.setStatus(502);
+        response.setBody("<h1>502 Bad Gateway</h1><p>CGI execution failed</p>");
+        return response;
+    }
+    return buildResponse(output);
 }
 
 /* ================= CGI 환경 변수 ================= */
@@ -320,7 +394,7 @@ std::string CgiHandler::executeCgi(
 
         int ready = poll(fds, nfds, 100);
         if (ready < 0) {
-            if (errno == EINTR) // 이건 ok 감점아님: 금지되는 건 정확히 "read/write/recv/send 다음의 errno. poll()다음의 errno 허용
+            if (errno == EINTR)
                 continue;
             if (stdinOpen)
                 close(pipeIn[1]);
@@ -338,27 +412,10 @@ std::string CgiHandler::executeCgi(
         for (int i = 0; i < nfds; ++i) {
             if (stdoutOpen && fds[i].fd == pipeOut[0] && (fds[i].revents & (POLLIN | POLLHUP | POLLERR))) {
                 char buffer[4096];
-                /*while (true) {
-                    ssize_t bytesRead = read(pipeOut[0], buffer, sizeof(buffer));
-                    if (bytesRead > 0) {
-                        output.append(buffer, bytesRead);
-                    } else if (bytesRead == 0) {
-                        close(pipeOut[0]);
-                        stdoutOpen = false;
-                        break;
-                    } else {
-                        if (errno == EAGAIN || errno == EWOULDBLOCK) // 이거 쓰면 안됨. 감점
-                            break;
-                        close(pipeOut[0]);
-                        stdoutOpen = false;
-                        break;
-                    }
-                }*/
                 ssize_t bytesRead = read(pipeOut[0], buffer, sizeof(buffer));
                 if (bytesRead > 0) {
                     output.append(buffer, bytesRead);
                 } else {
-                    // EOF(0)든 에러(<0)든 둘 다 읽기 종료: errno 안 봄
                     close(pipeOut[0]);
                     stdoutOpen = false;
                 }
@@ -376,18 +433,10 @@ std::string CgiHandler::executeCgi(
                 ssize_t written = write(pipeIn[1], body.c_str() + totalWritten, chunk);
                 if (written > 0) {
                     totalWritten += static_cast<size_t>(written);
-                } /*else if (written < 0) {
-                    if (errno == EAGAIN || errno == EWOULDBLOCK) // 감점
-                        continue;
+                } else {
                     close(pipeIn[1]);
                     stdinOpen = false;
-                }*/
-               else
-               {
-                // 더 못 씀 -> stdin 닫기 (errno 안 봄)
-                close(pipeIn[1]);
-                stdinOpen = false;
-               } 
+                }
             }
         }
     }

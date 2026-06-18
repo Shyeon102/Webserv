@@ -18,6 +18,8 @@
 #include <cerrno>
 #include <sstream>
 #include <cctype>
+#include <sys/wait.h>
+#include <signal.h>
 
 #include <stdio.h> // for perror but we can change to strerror
 // perror를 사용해도 되는지 확인
@@ -216,7 +218,7 @@ static bool exceedsClientMaxBodySize(const HttpRequest& req, size_t maxBodySize)
 }
 
 Server::Server(const std::vector<ServerConfig>& cfgs)
-: _configs(cfgs), _sidSeq(1) {
+: _configs(cfgs), _cgiTimeoutSec(30), _sidSeq(1) {
     if (_configs.empty())
         throw std::runtime_error("No server config provided");
 
@@ -262,6 +264,12 @@ Server::Server(const std::vector<ServerConfig>& cfgs)
 }
 
 Server::~Server() {
+    std::vector<CgiTask*> tasks;
+    for (std::map<int, CgiTask*>::iterator it = _cgiByClientFd.begin(); it != _cgiByClientFd.end(); ++it)
+        tasks.push_back(it->second);
+    for (size_t i = 0; i < tasks.size(); ++i)
+        destroyCgiTask(tasks[i]);
+
     for (std::map<int, Connection*>::iterator it = _conns.begin(); it != _conns.end(); ++it)
         delete it->second;
     _conns.clear();
@@ -308,51 +316,49 @@ void Server::setNonBlocking(int fd) {
 }
 
 void Server::run() {
-    // main에서 run으로 넘어옴.
     while (true) {
-        sweepTimeouts(); // 오래된 연결을 정리해주는 함수.
-        // 오래된 연결 정리를 먼저 해줌.
+        sweepTimeouts();
         int ready = ::poll(&_pfds[0], _pfds.size(), 1000); // 1s tick
-        // 1tick마다 poll감시를 함.
-        // pfds리스트에 있는 fd들 중에 이벤트가 생기는지 1초간 기다려. (1초간 감시)
         if (ready < 0) {
             if (errno == EINTR) continue;
             fatal("poll");
         }
         if (ready == 0) continue;
 
-        for (size_t i = 0; i < _pfds.size(); /* increment inside */)
-        {
+        for (size_t i = 0; i < _pfds.size(); /* increment inside */) {
             if (_pfds[i].revents == 0) { ++i; continue; }
-        // pfds사이즈를 보면서 pfds[i].revents를 0으로 채움. revents는 실제로 일어난 이벤트
             if (isListenFd(_pfds[i].fd)) {
-                // isListenFd로 검사 후 (set에 있는지, pfds[i].fd)
                 if (_pfds[i].revents & POLLIN) acceptLoop(_pfds[i].fd);
-                // revents(실제 들어온 입력이, POLLIN(입력 or 데이터 있어요) 와 같으면)
-                // 새로운 fd를 받는게 아니라 그 listen fd를 가지고 client fd로 만들어줌.
                 _pfds[i].revents = 0;
-                // accept해줬으니까 다시 실제 이벤트(revents를 0으로 초기화) 하고 다음으로 넘어감.
-                ++i; 
+                ++i;
                 continue;
             }
-            /*handleClientEvent(i);
-            // handleClientEvent may remove current index; safest is to just continue without ++i if removed
-            // We'll detect by checking i within bounds and revents reset.
-            if (i < _pfds.size() && _pfds[i].revents == 0) ++i;*/
-            int clientFd = _pfds[i].fd;
+            const int currentFd = _pfds[i].fd;
             try {
-                handleClientEvent(i);
-                // client 이벤트를 처리함. 근데 그러다 에러나면 커넥션 지우고 에러 뱉음.
+                if (isCgiFd(currentFd))
+                    handleCgiEvent(i);
+                else
+                    handleClientEvent(i);
             } catch (const std::exception& e) {
-                std::cerr << "Error handling client fd=" << clientFd
+                std::cerr << "Error handling fd=" << currentFd
                           << ": " << e.what() << "\n";
-                removeConn(clientFd);
+                if (isCgiFd(currentFd)) {
+                    std::map<int, CgiTask*>::iterator taskIt = _cgiByFd.find(currentFd);
+                    if (taskIt != _cgiByFd.end())
+                        failCgiTask(taskIt->second, 502);
+                } else {
+                    removeConn(currentFd);
+                }
             } catch (...) {
-                // std::exception이 아닌 별난 예외까지 전부 잡기 (서버는 절대 안 죽게)
-                std::cerr << "Unknown error handling client fd=" << clientFd << "\n";
-                removeConn(clientFd);
+                std::cerr << "Unknown error handling fd=" << currentFd << "\n";
+                if (isCgiFd(currentFd)) {
+                    std::map<int, CgiTask*>::iterator taskIt = _cgiByFd.find(currentFd);
+                    if (taskIt != _cgiByFd.end())
+                        failCgiTask(taskIt->second, 502);
+                } else {
+                    removeConn(currentFd);
+                }
             }
-            // handleClientEvent may remove current index; safest is to just continue without ++i if removed
             if (i < _pfds.size() && _pfds[i].revents == 0) ++i;
         }
         for (size_t k = 0; k < _pfds.size(); ++k) _pfds[k].revents = 0;
@@ -389,9 +395,7 @@ void Server::acceptLoop(int listenFd) {
     }
 }
 
-// CHECK)
-void    Server::handleClientEvent(size_t idx)
-{
+void Server::handleClientEvent(size_t idx) {
     int fd = _pfds[idx].fd;
     Connection* conn = 0;
 
@@ -407,101 +411,141 @@ void    Server::handleClientEvent(size_t idx)
     if (ev & (POLLERR | POLLHUP | POLLNVAL)) {
         removeConn(fd);
         return;
-    } // 에러 이벤트면 제거.
+    }
 
     if (ev & POLLIN) {
         if (!conn->onReadable()) { removeConn(fd); return; }
-// 사이즈가 최대 사이즈를 넘거나, 에러가 나면 remove
-        // =====================================================
-        // [HTTP/1.1 Validator 기반 보강 로직]
-        // - 명세 기반 상태코드 분기
-        // - Host 필수 검증
-        // - Version 검사
-        // - Method 구현 여부 검사
-        // =====================================================
-
-        while (true)
         {
+            std::string& in = conn->inBuf();
+            size_t headerEnd = in.find("\r\n\r\n");
+            if (headerEnd != std::string::npos) {
+                bool hasContentLength;
+                size_t contentLength;
+                bool invalidHeader;
+                bool isChunked;
+                parseBufferedContentLength(in.substr(0, headerEnd),
+                                           hasContentLength,
+                                           contentLength,
+                                           invalidHeader,
+                                           isChunked);
+                if (invalidHeader) {
+                    const ServerConfig& cfg = pickDefaultServerConfigForFd(fd);
+                    HttpResponse resp = buildErrorResponse(400, cfg);
+                    conn->queueWrite(resp.toString());
+                    conn->closeAfterWrite();
+                    updatePollEventsFor(fd);
+                    _pfds[idx].revents = 0;
+                    return;
+                }
+
+                const ServerConfig& cfg = pickDefaultServerConfigForFd(fd);
+                const size_t maxBodyForRequest = cfg.getClientMaxBodySize();
+                if (maxBodyForRequest > 0 && hasContentLength && contentLength > maxBodyForRequest) {
+                    HttpResponse resp = buildErrorResponse(413, cfg);
+                    conn->queueWrite(resp.toString());
+                    conn->closeAfterWrite();
+                    updatePollEventsFor(fd);
+                    _pfds[idx].revents = 0;
+                    return;
+                }
+                if (maxBodyForRequest > 0 && isChunked && in.size() > headerEnd + 4 + maxBodyForRequest) {
+                    HttpResponse resp = buildErrorResponse(413, cfg);
+                    conn->queueWrite(resp.toString());
+                    conn->closeAfterWrite();
+                    updatePollEventsFor(fd);
+                    _pfds[idx].revents = 0;
+                    return;
+                }
+            }
+        }
+        if (!conn->isWaitingForCgi()) while (true) {
             HttpRequest req;
             std::string& in = conn->inBuf();
 
             if (!bufferedRequestReadyForParse(in))
-                break ;
+                break;
 
-            // raw buffer 기반 파싱 시도
             req.appendData(in);
-
-            // 명세 기반 검증 수행
             HttpParseResult result = HttpRequestValidator::validate(req);
-            // 결과 저장을 하고, 
-            // 1) 아직 데이터 부족 (partial read)
-            if (result.getStatus() == HttpParseResult::PARSE_NEED_MORE) { break ; } // 대기 
-            // 2) 파싱 에러 (정확한 HTTP 상태코드 사용)
-            if (result.getStatus() == HttpParseResult::PARSE_ERROR) // 에러면 에러 응답.
-            {
+            if (result.getStatus() == HttpParseResult::PARSE_NEED_MORE) { break; }
+            if (result.getStatus() == HttpParseResult::PARSE_ERROR) {
                 const ServerConfig& cfg = pickDefaultServerConfigForFd(fd);
                 HttpResponse resp = buildErrorResponse(result.getHttpStatusCode(), cfg);
-
                 std::string bytes = resp.toString();
                 conn->queueWrite(bytes);
-                conn->closeAfterWrite(); // 응답을 다 보낸 후 닫음.
-                break ;
+                conn->closeAfterWrite();
+                break;
             }
-            // 3) 정상 파싱 완료
-            if (result.getStatus() == HttpParseResult::PARSE_COMPLETE)
-            {
-                // 두번째 요청 있을 경우, 첫번째 요청(consumedLength)까지 지우기 -> 다음 요청을 남겨둬야함
+            if (result.getStatus() == HttpParseResult::PARSE_COMPLETE) {
                 in.erase(0, result.getConsumedLength());
 
                 const ServerConfig& cfg = pickServerConfig(fd, req);
-                // 맞는 서버를 선택해서 req에 맞는 서버를 선택.
-                // 같은 포트에 여러 서버 블럭이 있을 경우 HOST로 구분하는 구조.
                 size_t maxBodyForRequest = cfg.getClientMaxBodySize();
-                //const std::string reqPath = stripQueryString(req.getURI());
-                //if (reqPath.find("/post_body") != 0)
-                    //maxBodyForRequest = static_cast<size_t>(100) * 1024 * 1024;
                 if (maxBodyForRequest > 0 && exceedsClientMaxBodySize(req, maxBodyForRequest)) {
                     HttpResponse resp = buildErrorResponse(413, cfg);
-                    // body size 검사. 바디가 너무 크면 413에러 처리
-
                     std::string bytes = resp.toString();
                     conn->queueWrite(bytes);
-                    conn->closeAfterWrite(); // 에러 보내고 닫기처리.
-                    break ;
+                    conn->closeAfterWrite();
+                    break;
                 }
 
-                conn->incRequestCount(); // 요청 카운트 증가 후 onRequest로 넘어감.
+                conn->incRequestCount();
                 onRequest(fd, req);
-                // 여기서 HTTP method랑 CGI, redirect, error page가 처리됨.
 
                 if (conn->shouldCloseAfterWrite())
-                    break ;
-                if (conn->requestCount() >= _maxKeepAlive)
-                {
+                    break;
+                if (conn->isWaitingForCgi())
+                    break;
+                if (conn->requestCount() >= _maxKeepAlive) {
                     conn->closeAfterWrite();
-                    break ;
+                    break;
                 }
             }
         }
     }
 
     if (ev & POLLOUT) {
-        if (!conn->onWritable()) { removeConn(fd); return ; }
-        // 그리고 여기서 실제 전송이 일어남.
+        if (!conn->onWritable()) { removeConn(fd); return; }
     }
 
-    updatePollEventsFor(fd); // poll 감시 이벤트는 항상 POLLIN을 기본으로 감시하고 여기서 POLLOUT을 추가함.
-    // 보낼 데이터가 있다면. POLLOUT도 추가함.
+    updatePollEventsFor(fd);
     _pfds[idx].revents = 0;
-    // 그리고 실제로 일어난 이벤트를 0으로 초기화
+}
+
+void Server::handleCgiEvent(size_t idx) {
+    const int fd = _pfds[idx].fd;
+    std::map<int, CgiTask*>::iterator it = _cgiByFd.find(fd);
+    if (it == _cgiByFd.end()) {
+        removePollFd(fd);
+        return;
+    }
+
+    CgiTask* task = it->second;
+    const short ev = _pfds[idx].revents;
+
+    if (ev & (POLLERR | POLLNVAL)) {
+        failCgiTask(task, 502);
+        return;
+    }
+
+    if (fd == task->stdoutFd && (ev & (POLLIN | POLLHUP)))
+        drainCgiTask(task);
+    if (fd == task->stdinFd && (ev & (POLLOUT | POLLHUP)))
+        feedCgiTask(task);
+
+    checkCgiChildExit(task);
+    if (isCgiTaskFinished(task))
+        finalizeCgiTask(task);
+    else if (idx < _pfds.size())
+        _pfds[idx].revents = 0;
 }
 
 void Server::updatePollEventsFor(int fd) {
     Connection* conn = _conns[fd];
     for (size_t i = 0; i < _pfds.size(); ++i) {
-        if (isListenFd(_pfds[i].fd)) continue; // 리스너는 항상 POLLIN 유지
+        if (isListenFd(_pfds[i].fd) || isCgiFd(_pfds[i].fd)) continue;
         if (_pfds[i].fd == fd) {
-            short e = POLLIN;
+            short e = conn->isWaitingForCgi() ? 0 : POLLIN;
             if (conn->hasPendingWrite()) e |= POLLOUT;
             _pfds[i].events = e;
             return;
@@ -510,52 +554,38 @@ void Server::updatePollEventsFor(int fd) {
 }
 
 void Server::removeConn(int fd) {
+    std::map<int, CgiTask*>::iterator cgiIt = _cgiByClientFd.find(fd);
+    if (cgiIt != _cgiByClientFd.end())
+        destroyCgiTask(cgiIt->second);
+
     std::map<int, Connection*>::iterator it = _conns.find(fd);
     if (it != _conns.end()) {
         delete it->second;
         _conns.erase(it);
     }
     _clientPort.erase(fd);
-    for (size_t i = 0; i < _pfds.size(); ++i) {
-        if (isListenFd(_pfds[i].fd)) continue; // 리스너는 제거 대상 아님
-        if (_pfds[i].fd == fd) {
-            _pfds.erase(_pfds.begin() + i);
-            break;
-        }
-    }
+    removePollFd(fd);
     std::cout << "Closed fd=" << fd << "\n";
 }
 
 void Server::sweepTimeouts() {
-    // main -> run -> sweepTimeouts로 넘어옴. 이건 무슨 함수 ?
     std::time_t now = std::time(NULL);
-    // 지금 시간 체크,
     std::vector<int> toClose;
 
     for (std::map<int, Connection*>::iterator it = _conns.begin(); it != _conns.end(); ++it) {
-        // 커넥션(클라)를 하나씩 돌면서 
         Connection* c = it->second;
-        // 각 반복마다 커넥션을 선언하고,
         int idle = static_cast<int>(now - c->lastActive());
-        // 커넥션의 마지막 액션시간을 체크함. 
         if (!c->hasPendingWrite()) {
-            // 클라이언트한테 보낼 데이터가 더 남아있지 않다면 
             if (idle > _idleTimeoutSec) toClose.push_back(it->first);
-            // 시간 제한에 걸렸다면. 그냥 커넥션 닫음.
-            // fix 여기서 닫는게 아니라 그냥 닫기 리스트에 추가.
         } else {
             if (idle > _writeTimeoutSec) toClose.push_back(it->first);
-            // 근데 보낼 데이터가 남아있지만 너무 오래 보내지 못하면 ?
-            // 여기서도 닫아야함. 무언가 에러가 있는 듯.
         }
     }
-    // 다 보내던지 닫기 리스트에 넣던지, 모든 커넥션의 반복이 끝난다면,
 
     for (size_t i = 0; i < toClose.size(); ++i) removeConn(toClose[i]);
-    // toClose에 사이즈를 체크해서 닫힌 갯수만큼 그 번호의 it의 커넥션을 닫아버림.
-    // (optional) session cleanup (very simple)
+    sweepCgiTasks();
+
     for (std::map<std::string, Session>::iterator sit = _sessions.begin(); sit != _sessions.end(); ) {
-        // 
         if ((int)(now - sit->second.lastSeen) > 300) { // 5 minutes
             std::map<std::string, Session>::iterator kill = sit++;
             _sessions.erase(kill);
@@ -563,6 +593,37 @@ void Server::sweepTimeouts() {
             ++sit;
         }
     }
+}
+
+void Server::removePollFd(int fd) {
+    for (size_t i = 0; i < _pfds.size(); ++i) {
+        if (_pfds[i].fd == fd) {
+            _pfds.erase(_pfds.begin() + i);
+            return;
+        }
+    }
+}
+
+void Server::sweepCgiTasks() {
+    std::vector<CgiTask*> tasks;
+    std::vector<CgiTask*> timedOut;
+    const std::time_t now = std::time(NULL);
+
+    for (std::map<int, CgiTask*>::iterator it = _cgiByClientFd.begin(); it != _cgiByClientFd.end(); ++it)
+        tasks.push_back(it->second);
+
+    for (size_t i = 0; i < tasks.size(); ++i) {
+        CgiTask* task = tasks[i];
+        if (_cgiByClientFd.find(task->clientFd) == _cgiByClientFd.end())
+            continue;
+        checkCgiChildExit(task);
+        if (isCgiTaskFinished(task))
+            finalizeCgiTask(task);
+        else if (now - task->startedAt > _cgiTimeoutSec)
+            timedOut.push_back(task);
+    }
+    for (size_t i = 0; i < timedOut.size(); ++i)
+        failCgiTask(timedOut[i], 504);
 }
 
 std::string Server::newSessionId() {
@@ -605,6 +666,10 @@ Server::Session& Server::getOrCreateSession(const HttpRequest& req, HttpResponse
 
 bool Server::isListenFd(int fd) const {
     return _listenFdSet.find(fd) != _listenFdSet.end();
+}
+
+bool Server::isCgiFd(int fd) const {
+    return _cgiByFd.find(fd) != _cgiByFd.end();
 }
 
 std::string Server::extractHostName(const HttpRequest& req) const {
@@ -714,10 +779,7 @@ HttpResponse Server::buildErrorResponse(int code, const ServerConfig& cfg) const
 
 void Server::onRequest(int fd, const HttpRequest& req) {
     Connection* conn = _conns[fd];
-    // 넘어온 커넥션 선언해주고.
     const ServerConfig& cfg = pickServerConfig(fd, req);
-    // 맞는 서버 블럭 찾아서 설정.
-    // keep-alive 설정.
     bool keepAlive = (req.getVersion() == "HTTP/1.1");
     const std::map<std::string, std::string>& headers = req.getHeaders();
     std::map<std::string, std::string>::const_iterator connIt = headers.find("connection");
@@ -735,13 +797,11 @@ void Server::onRequest(int fd, const HttpRequest& req) {
 
     HttpResponse resp;
     const std::string uriPath = stripQueryString(req.getURI());
-    // uri 파싱해서 /search?q=abc면 /search만 패스로 남김.
-    Router router; // 쿼리 스트링 없이 패스로만(보통의 경우)
+    Router router;
     const std::vector<LocationConfig>& locations = cfg.getLocations();
     for (size_t i = 0; i < locations.size(); ++i)
         router.addLocation(locations[i]);
     const LocationConfig* location = router.match(uriPath);
-    // config의 로케이션들을 location에 넣고, uri와 가장 잘 맞는 location을 찾음.
     if (location == NULL && !uriPath.empty() && uriPath[uriPath.size() - 1] != '/') {
         const std::string withSlash = uriPath + "/";
         const LocationConfig* slashMatch = router.match(withSlash);
@@ -765,7 +825,6 @@ void Server::onRequest(int fd, const HttpRequest& req) {
         resp = buildErrorResponse(404, cfg);
     } else {
         bool allowed = hasMethod(allowedMethods, req.getMethod());
-        bool handledByCgi = false;
 
         if (location->hasRedirect()) {
             const Redirect& redir = location->getRedirect();
@@ -777,16 +836,14 @@ void Server::onRequest(int fd, const HttpRequest& req) {
             resp.setHeader("Allow", allowHeader);
         } else if ((req.getMethod() == "GET" || req.getMethod() == "POST")
                 && locationHasCgiForUri(*location, req.getURI())) {
-                    // GET 또는 POST이고 uri 확장자가 CGI설정과 맞으면 cgi로 처리함.
-            CgiHandler cgiHandler;
-            resp = cgiHandler.handle(req, *location);
-            handledByCgi = true;
-            // 핸들러 만들어서 로케이션이랑 요청이랑 같이 줌.
+            if (startCgiTask(fd, req, *location, cfg, keepAlive))
+                return;
+            resp = buildErrorResponse(502, cfg);
         } else if (req.getMethod() == "GET" || req.getMethod() == "HEAD") {
             GETHandler getHandler;
             resp = getHandler.handle(req, *location);
             if (req.getMethod() == "HEAD")
-                resp.suppressBody(); // HEAD 요청은 바디 없이 헤더만 전송
+                resp.suppressBody();
         } else if (req.getMethod() == "POST") {
             size_t maxBody = cfg.hasClientMaxBodySize() ? cfg.getClientMaxBodySize() : 0;
             POSTHandler postHandler(maxBody);
@@ -794,12 +851,11 @@ void Server::onRequest(int fd, const HttpRequest& req) {
         } else if (req.getMethod() == "DELETE") {
             DELETEHandler deleteHandler;
             resp = deleteHandler.handle(req, *location);
-            // 나머지 처리.
         } else {
             resp = buildErrorResponse(501, cfg);
         }
 
-        if (!handledByCgi && resp.getStatusCode() >= 400) {
+        if (resp.getStatusCode() >= 400) {
             int code = resp.getStatusCode();
             HttpResponse errResp = buildErrorResponse(code, cfg);
             if (code == 405)
@@ -812,12 +868,214 @@ void Server::onRequest(int fd, const HttpRequest& req) {
     if (req.getMethod() == "HEAD")
         resp.suppressBody();
 
-    // Connection 헤더 설정
     resp.setKeepAlive(keepAlive, _idleTimeoutSec, _maxKeepAlive);
 
-    std::string bytes = resp.toString(); // 요청 처리 결과를 conn에다가 쓰기.
+    std::string bytes = resp.toString();
     conn->queueWrite(bytes);
 
-    if (!keepAlive) conn->closeAfterWrite(); // keep-alive가 아니면 다 보낸뒤 닫아라. 
-    // 다 보낸뒤 닫는 이유는 아직 데이터가 가는 중일지도 모름.
+    if (!keepAlive) conn->closeAfterWrite();
+}
+
+bool Server::startCgiTask(int clientFd,
+                          const HttpRequest& req,
+                          const LocationConfig& location,
+                          const ServerConfig& cfg,
+                          bool keepAlive) {
+    std::map<int, Connection*>::iterator connIt = _conns.find(clientFd);
+    if (connIt == _conns.end())
+        return false;
+
+    CgiHandler cgiHandler;
+    HttpResponse errorResponse;
+    std::string scriptPath;
+    std::string interpreter;
+    std::map<std::string, std::string> env;
+    if (!cgiHandler.prepare(req, location, scriptPath, interpreter, env, errorResponse)) {
+        errorResponse.setKeepAlive(keepAlive, _idleTimeoutSec, _maxKeepAlive);
+        connIt->second->queueWrite(errorResponse.toString());
+        if (!keepAlive)
+            connIt->second->closeAfterWrite();
+        return true;
+    }
+
+    CgiTask* task = new CgiTask();
+    task->clientFd = clientFd;
+    task->requestBody = req.getBody();
+    task->startedAt = std::time(NULL);
+    task->stdinClosed = false;
+    task->stdoutClosed = false;
+    task->keepAlive = keepAlive;
+    task->method = req.getMethod();
+    task->cfg = &cfg;
+
+    try {
+        task->pid = cgiHandler.spawn(scriptPath, interpreter, env, task->stdinFd, task->stdoutFd);
+    } catch (...) {
+        delete task;
+        return false;
+    }
+
+    _cgiByClientFd[clientFd] = task;
+    _cgiByFd[task->stdinFd] = task;
+    _cgiByFd[task->stdoutFd] = task;
+
+    pollfd p;
+    p.fd = task->stdinFd;
+    p.events = POLLOUT;
+    p.revents = 0;
+    _pfds.push_back(p);
+
+    p.fd = task->stdoutFd;
+    p.events = POLLIN;
+    p.revents = 0;
+    _pfds.push_back(p);
+
+    connIt->second->setWaitingForCgi(true);
+    updatePollEventsFor(clientFd);
+    return true;
+}
+
+void Server::checkCgiChildExit(CgiTask* task) {
+    if (task == NULL || task->childExited || task->pid < 0)
+        return;
+
+    int status = 0;
+    pid_t result = waitpid(task->pid, &status, WNOHANG);
+    if (result == task->pid) {
+        task->childExited = true;
+        task->exitStatus = status;
+        task->pid = -1;
+    }
+}
+
+void Server::feedCgiTask(CgiTask* task) {
+    if (task == NULL || task->stdinClosed)
+        return;
+
+    if (task->bodySent >= task->requestBody.size()) {
+        closeCgiFd(task, task->stdinFd);
+        return;
+    }
+
+    const size_t remain = task->requestBody.size() - task->bodySent;
+    const size_t chunk = remain > 16384 ? 16384 : remain;
+    ssize_t written = write(task->stdinFd, task->requestBody.data() + task->bodySent, chunk);
+    if (written > 0) {
+        task->bodySent += static_cast<size_t>(written);
+        if (task->bodySent >= task->requestBody.size())
+            closeCgiFd(task, task->stdinFd);
+        return;
+    }
+    if (written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+        return;
+    closeCgiFd(task, task->stdinFd);
+}
+
+void Server::drainCgiTask(CgiTask* task) {
+    if (task == NULL || task->stdoutClosed)
+        return;
+
+    char buffer[4096];
+    ssize_t bytesRead = read(task->stdoutFd, buffer, sizeof(buffer));
+    if (bytesRead > 0) {
+        task->output.append(buffer, bytesRead);
+        return;
+    }
+    if (bytesRead < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+        return;
+    closeCgiFd(task, task->stdoutFd);
+}
+
+bool Server::isCgiTaskFinished(CgiTask* task) const {
+    return task != NULL && task->stdinClosed && task->stdoutClosed && task->childExited;
+}
+
+void Server::finalizeCgiTask(CgiTask* task) {
+    if (task == NULL)
+        return;
+
+    std::map<int, Connection*>::iterator connIt = _conns.find(task->clientFd);
+    if (connIt == _conns.end()) {
+        destroyCgiTask(task);
+        return;
+    }
+
+    Connection* conn = connIt->second;
+    conn->setWaitingForCgi(false);
+
+    HttpResponse response;
+    if (WIFEXITED(task->exitStatus) && WEXITSTATUS(task->exitStatus) == 0) {
+        CgiHandler cgiHandler;
+        response = cgiHandler.buildResponse(task->output);
+    } else {
+        response = buildErrorResponse(502, *task->cfg);
+    }
+
+    if (task->method == "HEAD")
+        response.suppressBody();
+    response.setKeepAlive(task->keepAlive, _idleTimeoutSec, _maxKeepAlive);
+    conn->queueWrite(response.toString());
+    if (!task->keepAlive)
+        conn->closeAfterWrite();
+
+    destroyCgiTask(task);
+    updatePollEventsFor(conn->fd());
+}
+
+void Server::failCgiTask(CgiTask* task, int statusCode) {
+    if (task == NULL)
+        return;
+
+    if (task->pid > 0)
+        kill(task->pid, SIGKILL);
+    if (!task->childExited && task->pid > 0) {
+        waitpid(task->pid, &task->exitStatus, 0);
+        task->childExited = true;
+        task->pid = -1;
+    }
+
+    std::map<int, Connection*>::iterator connIt = _conns.find(task->clientFd);
+    if (connIt != _conns.end()) {
+        HttpResponse response = buildErrorResponse(statusCode, *task->cfg);
+        Connection* conn = connIt->second;
+        conn->setWaitingForCgi(false);
+        response.setKeepAlive(task->keepAlive, _idleTimeoutSec, _maxKeepAlive);
+        conn->queueWrite(response.toString());
+        if (!task->keepAlive)
+            conn->closeAfterWrite();
+        updatePollEventsFor(conn->fd());
+    }
+
+    destroyCgiTask(task);
+}
+
+void Server::closeCgiFd(CgiTask* task, int fd) {
+    if (task == NULL || fd < 0)
+        return;
+
+    removePollFd(fd);
+    _cgiByFd.erase(fd);
+    close(fd);
+
+    if (fd == task->stdinFd) {
+        task->stdinFd = -1;
+        task->stdinClosed = true;
+    } else if (fd == task->stdoutFd) {
+        task->stdoutFd = -1;
+        task->stdoutClosed = true;
+    }
+}
+
+void Server::destroyCgiTask(CgiTask* task) {
+    if (task == NULL)
+        return;
+
+    closeCgiFd(task, task->stdinFd);
+    closeCgiFd(task, task->stdoutFd);
+    if (task->pid > 0) {
+        kill(task->pid, SIGKILL);
+        waitpid(task->pid, NULL, 0);
+    }
+    _cgiByClientFd.erase(task->clientFd);
+    delete task;
 }
