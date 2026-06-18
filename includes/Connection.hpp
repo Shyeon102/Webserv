@@ -43,8 +43,9 @@ private:
     State _state;
 
     std::string _in;
-    std::string _out;
+    std::string _out; // 클라이언트에게 보내야할 데이터.
     size_t _outPos;  // write offset to avoid repeated erase
+    // _out의 현재 포지션(얼마나 보냈는가)
 
     bool _closeAfterWrite;
     std::time_t _lastActive;

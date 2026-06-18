@@ -1,7 +1,0 @@
-[PASS] concurrent GET (n=2000,c=100)
-[PASS] keep-alive GET (single-conn n=600)
-[PASS] dual-port concurrent GET
-[PASS] body-limit policy (small=200, big=413)
-[PASS] server alive after stress
-
-RESULT: PASS
