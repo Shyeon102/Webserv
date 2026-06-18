@@ -3,29 +3,35 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>webserv test page</title>
+    <title>webserv tests</title>
     <style>
         body {
             margin: 0;
             font-family: Arial, sans-serif;
-            color: #222;
-            background: #f6f7f9;
+            color: #202124;
+            background: #f5f6f8;
         }
 
         main {
-            max-width: 900px;
+            max-width: 1040px;
             margin: 0 auto;
-            padding: 32px 18px;
+            padding: 32px 18px 48px;
+        }
+
+        header {
+            margin-bottom: 22px;
         }
 
         h1 {
-            margin: 0 0 8px;
-            font-size: 28px;
+            margin: 0;
+            font-size: 32px;
         }
 
-        p {
-            margin: 0 0 20px;
+        h2 {
+            margin: 6px 0 0;
             color: #555;
+            font-size: 18px;
+            font-weight: normal;
         }
 
         section {
@@ -36,12 +42,12 @@
             background: #fff;
         }
 
-        h2 {
+        h3 {
             margin: 0 0 12px;
-            font-size: 18px;
+            font-size: 17px;
         }
 
-        .row {
+        .actions {
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
@@ -49,9 +55,10 @@
         }
 
         a,
-        button {
+        button,
+        input[type="submit"] {
             display: inline-block;
-            padding: 9px 12px;
+            padding: 8px 11px;
             border: 1px solid #222;
             border-radius: 6px;
             color: #222;
@@ -62,104 +69,158 @@
         }
 
         a:hover,
-        button:hover {
-            background: #222;
+        button:hover,
+        input[type="submit"]:hover {
             color: #fff;
+            background: #222;
         }
 
         input[type="text"],
         input[type="file"] {
             max-width: 100%;
             padding: 8px;
-            border: 1px solid #ccc;
+            border: 1px solid #bbb;
             border-radius: 6px;
             background: #fff;
         }
 
-        code {
-            display: block;
-            margin-top: 10px;
-            padding: 10px;
-            overflow-x: auto;
-            border-radius: 6px;
-            background: #f0f1f3;
-            color: #333;
-            white-space: nowrap;
+        form {
+            margin: 0;
         }
 
         pre {
-            min-height: 80px;
+            min-height: 92px;
             margin: 12px 0 0;
             padding: 12px;
             overflow-x: auto;
             border-radius: 6px;
             background: #111;
-            color: #e8e8e8;
+            color: #eee;
             white-space: pre-wrap;
+        }
+
+        .note {
+            margin-top: 10px;
+            color: #666;
+            font-size: 13px;
         }
     </style>
 </head>
 <body>
     <main>
-        <h1>webserv test page</h1>
-        <p>www.conf 기준으로 static, autoindex, upload, redirect, method 제한을 확인합니다.</p>
+        <header>
+            <h1>webserv test page</h1>
+            <h2>GET / POST / DELETE, upload, autoindex, redirect, custom error</h2>
+        </header>
 
         <section>
-            <h2>GET / static / autoindex / redirect</h2>
-            <div class="row">
-                <a href="/">GET /</a>
-                <a href="/static/">static index</a>
-                <a href="/listing/">autoindex on</a>
-                <a href="/noindex/">autoindex off</a>
-                <a href="/redirect/42-intra">redirect 42 intra</a>
+            <h3>[METHOD TEST]</h3>
+            <div class="actions">
+                <button type="button" onclick="sendRequest('GET', '/static/')">GET /static/</button>
+                <button type="button" onclick="sendRequest('POST', '/upload.php')">POST /upload.php</button>
+                <button type="button" onclick="prepareDeleteTarget()">prepare delete-me.txt</button>
+                <button type="button" onclick="sendRequest('DELETE', document.getElementById('deleteTarget').value)">DELETE target</button>
+                <input id="deleteTarget" type="text" value="/upload/delete-me.txt" aria-label="delete target">
             </div>
-            <code>curl -i http://localhost:8080/</code>
+            <pre id="methodResult">method result</pre>
+            <div class="note">prepare delete-me.txt uploads a small file to /upload/delete-me.txt, then DELETE target removes it.</div>
         </section>
 
         <section>
-            <h2>Upload</h2>
-            <form action="/upload/" method="post" enctype="multipart/form-data">
-                <div class="row">
+            <h3>[UPLOAD TEST]</h3>
+            <div class="actions">
+                <form method="post" enctype="multipart/form-data" action="/upload/">
                     <input type="file" name="file">
-                    <button type="submit">POST file</button>
-                </div>
-            </form>
-            <code>curl -i -F "file=@www/index.html" http://localhost:8080/upload/</code>
+                    <button type="submit">upload_store /upload/</button>
+                </form>
+                <form method="post" enctype="multipart/form-data" action="/upload.php">
+                    <input type="file" name="Yofile">
+                    <button type="submit">CGI POST /upload.php</button>
+                </form>
+            </div>
         </section>
 
         <section>
-            <h2>Method test</h2>
-            <div class="row">
-                <input id="target" type="text" value="/method/" aria-label="test path">
-                <button type="button" onclick="send('GET')">GET</button>
-                <button type="button" onclick="send('POST')">POST</button>
-                <button type="button" onclick="send('DELETE')">DELETE</button>
-                <button type="button" onclick="send('HEAD')">HEAD</button>
+            <h3>[AUTOINDEX TEST]</h3>
+            <div class="actions">
+                <a href="/test/">autoindex on /test/</a>
+                <a href="/listing/">autoindex on /listing/</a>
+                <a href="/images">autoindex on /images</a>
+                <a href="/noindex/">autoindex off /noindex/</a>
             </div>
-            <pre id="result">result</pre>
+        </section>
+
+        <section>
+            <h3>[REDIRECTION TEST]</h3>
+            <div class="actions">
+                <a href="/redirection/42-intra">302 intra</a>
+                <a href="/redirection/nginx/">302 nginx</a>
+                <a href="/redirection/google">302 google</a>
+            </div>
+        </section>
+
+        <section>
+            <h3>[CUSTOM ERROR PAGE TEST]</h3>
+            <div class="actions">
+                <a href="/a">404 custom page</a>
+                <form method="post" action="/method/">
+                    <input type="submit" value="405 custom page">
+                </form>
+                <a href="/errors/413.html">view 413 page</a>
+                <a href="/errors/500.html">view 500 page</a>
+            </div>
         </section>
     </main>
 
     <script>
-        async function send(method) {
-            const target = document.getElementById('target').value || '/';
-            const result = document.getElementById('result');
+        async function sendRequest(method, target) {
+            const result = document.getElementById('methodResult');
             const options = { method: method };
 
             if (method === 'POST') {
                 options.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
-                options.body = 'name=webserv&message=hello';
+                options.body = 'fname=webserv&message=method-test';
             }
 
             result.textContent = method + ' ' + target + ' ...';
 
             try {
                 const response = await fetch(target, options);
-                const text = method === 'HEAD' ? '' : await response.text();
+                const body = method === 'DELETE' || response.status === 204
+                    ? ''
+                    : await response.text();
+
                 result.textContent =
                     method + ' ' + target + '\n' +
                     response.status + ' ' + response.statusText + '\n\n' +
-                    text.slice(0, 1200);
+                    body.slice(0, 1200);
+            } catch (error) {
+                result.textContent = String(error);
+            }
+        }
+
+        async function prepareDeleteTarget() {
+            const result = document.getElementById('methodResult');
+            const target = document.getElementById('deleteTarget').value || '/upload/delete-me.txt';
+            const filename = target.split('/').pop() || 'delete-me.txt';
+            const form = new FormData();
+            const file = new Blob(['delete target created by webserv test page\n'], { type: 'text/plain' });
+
+            result.textContent = 'Preparing ' + target + ' ...';
+            try {
+                await fetch(target, { method: 'DELETE' });
+                form.append('file', file, filename);
+
+                const response = await fetch('/upload/', {
+                    method: 'POST',
+                    body: form
+                });
+                const body = await response.text();
+
+                result.textContent =
+                    'POST /upload/\n' +
+                    response.status + ' ' + response.statusText + '\n\n' +
+                    body.slice(0, 1200);
             } catch (error) {
                 result.textContent = String(error);
             }
