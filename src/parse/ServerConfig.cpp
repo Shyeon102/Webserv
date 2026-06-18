@@ -6,7 +6,7 @@
 /*   By: princessj <princessj@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/01/27 17:31:47 by jihyeki2          #+#    #+#             */
-/*   Updated: 2026/06/12 19:23:22 by princessj        ###   ########.fr       */
+/*   Updated: 2026/06/18 16:43:30 by princessj        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -22,6 +22,29 @@ static const int			DEFAULT_IDLE_TIMEOUT = 15;
 static const int			DEFAULT_WRITE_TIMEOUT = 10;
 static const int			DEFAULT_KEEPALIVE_MAX = 100;
 
+/* 정확히 4옥텟, 각 옥텟 숫자 & 0~255 */
+static bool	isValidIPv4(const std::string& ip)
+{
+	size_t	start = 0;
+	int		count = 0;
+
+	while (true)
+	{
+		size_t		dot = ip.find('.', start);
+		std::string	octet = (dot == std::string::npos) ? ip.substr(start) : ip.substr(start, dot - start);
+
+		if (octet.empty() || !isNumber(octet)) // 빈 칸 or 숫자 아님(#, 문자 등)
+			return false;
+		if (std::atol(octet.c_str()) > 255) // 범위
+			return false;
+		++count;
+
+		if (dot == std::string::npos)
+			break ;
+		start = dot + 1;
+	}
+	return (count == 4); // 옥텟 정확히 4개
+}
 
 /* 공통 helper func */
 static void	parseListenValue(const std::string& value, std::string& ip, int& port)
@@ -42,6 +65,11 @@ static void	parseListenValue(const std::string& value, std::string& ip, int& por
 
 		if (ip.empty() || portStr.empty() || !isNumber(portStr))
 			throw ConfigSyntaxException("Error: listen: invalid ip:port");
+
+		if (ip == "localhost") // 허용 + 127.0.0.1로 정규화
+			ip = "127.0.0.1";
+		else if (!isValidIPv4(ip)) // 그 외엔 IPv4 형식 강제
+			throw ConfigSemanticException("Error: listen: invalid ip address");
 
 		port = std::atoi(portStr.c_str());
 	}
@@ -387,7 +415,7 @@ void	ServerConfig::parseDirective(const std::vector<Token> &tokens, size_t &i)
 	else if (field == "index")
 		handleIndex(tokens, i);
 	else if (field == "return")
-		handleReturn(tokens, i);
+		throw ConfigSemanticException("Error: 'return' is only allowed inside a location block"); // server에서는 return 막기: 서브젝트는 redirection을 route 규칙으로 정의하고 nginx는 참고 대상이라 우리는 route 레벨로 스코프를 정함
 	else if (field == "methods")
 		handleMethods(tokens, i);
 	else if (field == "allow_methods")
@@ -460,6 +488,11 @@ std::vector<int> ServerConfig::getListenPorts() const
 	for (size_t i = 0; i < _listen.size(); i++)
 		ports.push_back(_listen[i].port);
 	return ports;
+}
+
+const std::vector<ServerConfig::ListenAddress>&	ServerConfig::getListenAddresses() const
+{
+	return this->_listen;
 }
 
 const std::string& ServerConfig::getRoot() const

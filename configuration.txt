@@ -2,7 +2,7 @@ server {
     listen 8080;
     server_name seonghyeon;
     root ./www;
-    error_page ./www/errors/404.html;
+    error_page 404 ./www/errors/404.html;
     methods GET POST DELETE;
 
     location / {
