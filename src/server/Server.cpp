@@ -437,25 +437,6 @@ void Server::handleClientEvent(size_t idx) {
                     _pfds[idx].revents = 0;
                     return;
                 }
-
-                const ServerConfig& cfg = pickDefaultServerConfigForFd(fd);
-                const size_t maxBodyForRequest = cfg.getClientMaxBodySize();
-                if (maxBodyForRequest > 0 && hasContentLength && contentLength > maxBodyForRequest) {
-                    HttpResponse resp = buildErrorResponse(413, cfg);
-                    conn->queueWrite(resp.toString());
-                    conn->closeAfterWrite();
-                    updatePollEventsFor(fd);
-                    _pfds[idx].revents = 0;
-                    return;
-                }
-                if (maxBodyForRequest > 0 && isChunked && in.size() > headerEnd + 4 + maxBodyForRequest) {
-                    HttpResponse resp = buildErrorResponse(413, cfg);
-                    conn->queueWrite(resp.toString());
-                    conn->closeAfterWrite();
-                    updatePollEventsFor(fd);
-                    _pfds[idx].revents = 0;
-                    return;
-                }
             }
         }
         if (!conn->isWaitingForCgi()) while (true) {
@@ -523,15 +504,21 @@ void Server::handleCgiEvent(size_t idx) {
     CgiTask* task = it->second;
     const short ev = _pfds[idx].revents;
 
-    if (ev & (POLLERR | POLLNVAL)) {
+    if (ev & POLLNVAL) {
         failCgiTask(task, 502);
         return;
     }
 
-    if (fd == task->stdoutFd && (ev & (POLLIN | POLLHUP)))
-        drainCgiTask(task);
-    if (fd == task->stdinFd && (ev & (POLLOUT | POLLHUP)))
-        feedCgiTask(task);
+    if (fd == task->stdoutFd) {
+        if (ev & (POLLIN | POLLHUP | POLLERR))
+            drainCgiTask(task);
+    } else if (fd == task->stdinFd) {
+        if (ev & (POLLHUP | POLLERR)) {
+            closeCgiFd(task, task->stdinFd);
+        } else if (ev & POLLOUT) {
+            feedCgiTask(task);
+        }
+    }
 
     checkCgiChildExit(task);
     if (isCgiTaskFinished(task))
@@ -569,11 +556,15 @@ void Server::removeConn(int fd) {
 }
 
 void Server::sweepTimeouts() {
+    sweepCgiTasks();
+
     std::time_t now = std::time(NULL);
     std::vector<int> toClose;
 
     for (std::map<int, Connection*>::iterator it = _conns.begin(); it != _conns.end(); ++it) {
         Connection* c = it->second;
+        if (c->isWaitingForCgi())
+            continue;
         int idle = static_cast<int>(now - c->lastActive());
         if (!c->hasPendingWrite()) {
             if (idle > _idleTimeoutSec) toClose.push_back(it->first);
@@ -583,7 +574,6 @@ void Server::sweepTimeouts() {
     }
 
     for (size_t i = 0; i < toClose.size(); ++i) removeConn(toClose[i]);
-    sweepCgiTasks();
 
     for (std::map<std::string, Session>::iterator sit = _sessions.begin(); sit != _sessions.end(); ) {
         if ((int)(now - sit->second.lastSeen) > 300) { // 5 minutes
