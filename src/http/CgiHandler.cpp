@@ -11,20 +11,13 @@
 /* ************************************************************************** */
 
 #include "CgiHandler.hpp"
-#include <sys/wait.h>
-#include <sys/stat.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <cstring>
 #include <cstdlib>
 #include <sstream>
 #include <cctype>
-#include <iostream>
-#include <errno.h>
 #include <signal.h>
 #include <vector>
-#include <limits.h>
-#include <poll.h>
 
 CgiHandler::CgiHandler() {}
 CgiHandler::~CgiHandler() {}
@@ -164,26 +157,6 @@ HttpResponse CgiHandler::buildResponse(const std::string& output) const {
     return response;
 }
 
-HttpResponse CgiHandler::handle(const HttpRequest& request,
-                                const LocationConfig& location) {
-    HttpResponse response;
-    std::string scriptPath;
-    std::string interpreter;
-    std::map<std::string, std::string> env;
-    if (!prepare(request, location, scriptPath, interpreter, env, response))
-        return response;
-
-    std::string output;
-    try {
-        output = executeCgi(scriptPath, interpreter, env, request.getBody());
-    } catch (const std::exception&) {
-        response.setStatus(502);
-        response.setBody("<h1>502 Bad Gateway</h1><p>CGI execution failed</p>");
-        return response;
-    }
-    return buildResponse(output);
-}
-
 /* ================= CGI 환경 변수 ================= */
 
 std::map<std::string, std::string> CgiHandler::buildEnv(
@@ -245,196 +218,6 @@ std::map<std::string, std::string> CgiHandler::buildEnv(
     env["REMOTE_ADDR"] = "127.0.0.1";
 
     return env;
-}
-
-/* ================= CGI 실행 ================= */
-
-std::string CgiHandler::executeCgi(
-    const std::string& scriptPath,
-    const std::string& interpreter,
-    const std::map<std::string, std::string>& env,
-    const std::string& body) const {
-
-    int pipeIn[2];   // 부모 -> 자식 (stdin)
-    int pipeOut[2];  // 자식 -> 부모 (stdout)
-
-    if (pipe(pipeIn) < 0 || pipe(pipeOut) < 0)
-        throw std::runtime_error("pipe failed");
-
-    pid_t pid = fork();
-    if (pid < 0) {
-        close(pipeIn[0]); close(pipeIn[1]);
-        close(pipeOut[0]); close(pipeOut[1]);
-        throw std::runtime_error("fork failed");
-    }
-
-    if (pid == 0) {
-        // 자식 프로세스: CGI 스크립트 실행
-        
-        // stdin/stdout 리다이렉트
-        dup2(pipeIn[0], STDIN_FILENO);
-        dup2(pipeOut[1], STDOUT_FILENO);
-        
-        close(pipeIn[0]); close(pipeIn[1]);
-        close(pipeOut[0]); close(pipeOut[1]);
-
-        // 환경 변수 구성 (execve envp)
-        std::vector<std::string> envStrings;
-        std::vector<char*> envp;
-        envStrings.reserve(env.size());
-        envp.reserve(env.size() + 1);
-        for (std::map<std::string, std::string>::const_iterator it = env.begin();
-             it != env.end(); ++it) {
-            envStrings.push_back(it->first + "=" + it->second);
-        }
-        for (size_t i = 0; i < envStrings.size(); ++i) {
-            envp.push_back(const_cast<char*>(envStrings[i].c_str()));
-        }
-        envp.push_back(NULL);
-
-        // 스크립트 디렉토리로 chdir
-        size_t lastSlash = scriptPath.find_last_of('/');
-        if (lastSlash != std::string::npos) {
-            std::string dir = scriptPath.substr(0, lastSlash);
-            if (chdir(dir.c_str()) < 0) {
-                std::cerr << "chdir failed: " << strerror(errno) << std::endl;
-                exit(1);
-            }
-        }
-
-        // 실행
-        char* argv[3];
-        argv[0] = const_cast<char*>(interpreter.c_str());
-        argv[1] = const_cast<char*>(scriptPath.c_str());
-        argv[2] = NULL;
-
-        execve(interpreter.c_str(), argv, &envp[0]);
-        
-        // execve 실패 시
-        std::cerr << "execve failed: " << strerror(errno) << std::endl;
-        exit(1);
-    }
-
-    // 부모 프로세스
-    close(pipeIn[0]);
-    close(pipeOut[1]);
-    signal(SIGPIPE, SIG_IGN);
-
-    setFdNonBlocking(pipeIn[1]);
-    setFdNonBlocking(pipeOut[0]);
-
-    std::string output;
-    size_t totalWritten = 0;
-    bool stdinOpen = true;
-    bool stdoutOpen = true;
-    bool childExited = false;
-    int status = 0;
-    std::time_t start = std::time(NULL);
-
-    while (stdoutOpen || stdinOpen) {
-        if (!childExited) {
-            pid_t done = waitpid(pid, &status, WNOHANG);
-            if (done == pid)
-                childExited = true;
-            else if (done < 0) {
-                close(pipeIn[1]);
-                close(pipeOut[0]);
-                throw std::runtime_error("waitpid failed");
-            }
-        }
-
-        if (std::time(NULL) - start >= 30) {
-            if (!childExited)
-                kill(pid, SIGKILL);
-            close(pipeIn[1]);
-            close(pipeOut[0]);
-            waitpid(pid, &status, 0);
-            throw std::runtime_error("CGI timeout");
-        }
-
-        if (stdinOpen && totalWritten >= body.size()) {
-            close(pipeIn[1]);
-            stdinOpen = false;
-        }
-
-        struct pollfd fds[2];
-        int nfds = 0;
-
-        if (stdoutOpen) {
-            fds[nfds].fd = pipeOut[0];
-            fds[nfds].events = POLLIN;
-            fds[nfds].revents = 0;
-            ++nfds;
-        }
-        if (stdinOpen) {
-            fds[nfds].fd = pipeIn[1];
-            fds[nfds].events = POLLOUT;
-            fds[nfds].revents = 0;
-            ++nfds;
-        }
-
-        int ready = poll(fds, nfds, 100);
-        if (ready < 0) {
-            if (errno == EINTR)
-                continue;
-            if (stdinOpen)
-                close(pipeIn[1]);
-            if (stdoutOpen)
-                close(pipeOut[0]);
-            if (!childExited) {
-                kill(pid, SIGKILL);
-                waitpid(pid, &status, 0);
-            }
-            throw std::runtime_error("poll failed");
-        }
-        if (ready == 0)
-            continue;
-
-        for (int i = 0; i < nfds; ++i) {
-            if (stdoutOpen && fds[i].fd == pipeOut[0] && (fds[i].revents & (POLLIN | POLLHUP | POLLERR))) {
-                char buffer[4096];
-                ssize_t bytesRead = read(pipeOut[0], buffer, sizeof(buffer));
-                if (bytesRead > 0) {
-                    output.append(buffer, bytesRead);
-                } else {
-                    close(pipeOut[0]);
-                    stdoutOpen = false;
-                }
-            }
-
-            if (stdinOpen && fds[i].fd == pipeIn[1] && (fds[i].revents & (POLLOUT | POLLHUP | POLLERR))) {
-                if (fds[i].revents & (POLLHUP | POLLERR)) {
-                    close(pipeIn[1]);
-                    stdinOpen = false;
-                    continue;
-                }
-
-                size_t remaining = body.size() - totalWritten;
-                size_t chunk = remaining > 16384 ? 16384 : remaining;
-                ssize_t written = write(pipeIn[1], body.c_str() + totalWritten, chunk);
-                if (written > 0) {
-                    totalWritten += static_cast<size_t>(written);
-                } else {
-                    close(pipeIn[1]);
-                    stdinOpen = false;
-                }
-            }
-        }
-    }
-
-    if (!childExited) {
-        if (!waitWithTimeout(pid, status, 30)) {
-            kill(pid, SIGKILL);
-            waitpid(pid, &status, 0);
-            throw std::runtime_error("CGI timeout");
-        }
-    }
-
-    if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
-        throw std::runtime_error("CGI script exited with error");
-    }
-
-    return output;
 }
 
 /* ================= CGI 출력 파싱 ================= */
@@ -532,22 +315,6 @@ std::string CgiHandler::getInterpreter(const std::string& path,
         return "/usr/bin/perl";
 
     return "";
-}
-
-bool CgiHandler::waitWithTimeout(pid_t pid, int& status, int timeoutSec) const {
-    time_t start = time(NULL);
-    
-    while (time(NULL) - start < timeoutSec) {
-        pid_t result = waitpid(pid, &status, WNOHANG);
-        if (result == pid)
-            return true;
-        if (result < 0)
-            return false;
-
-        poll(NULL, 0, 100);
-    }
-    
-    return false;
 }
 
 std::string CgiHandler::trim(const std::string& s) const {

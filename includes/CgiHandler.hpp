@@ -13,20 +13,20 @@
 #ifndef CGIHANDLER_HPP
 #define CGIHANDLER_HPP
 
-#include "RequestHandler.hpp"
+#include "HttpRequest.hpp"
+#include "HttpResponse.hpp"
+#include "LocationConfig.hpp"
 #include <string>
 #include <map>
 #include <sys/types.h>
 
 // CGI 실행을 담당하는 핸들러
 // RFC 3147 (CGI 1.1) 기반
-class CgiHandler : public RequestHandler {
+class CgiHandler {
 public:
     CgiHandler();
     virtual ~CgiHandler();
 
-    virtual HttpResponse handle(const HttpRequest& request,
-                                const LocationConfig& location);
     bool prepare(const HttpRequest& request,
                  const LocationConfig& location,
                  std::string& scriptPath,
@@ -47,13 +47,6 @@ private:
         const LocationConfig& location,
         const std::string& scriptPath) const;
 
-    // CGI 스크립트 실행 및 출력 캡처
-    std::string executeCgi(
-        const std::string& scriptPath,
-        const std::string& interpreter,
-        const std::map<std::string, std::string>& env,
-        const std::string& body) const;
-
     // CGI 출력 파싱 (헤더와 바디 분리)
     void parseCgiOutput(const std::string& output,
                         std::map<std::string, std::string>& headers,
@@ -66,9 +59,6 @@ private:
     // 실제 스크립트 파일 경로 빌드
     std::string buildScriptPath(const std::string& uri,
                                 const LocationConfig& location) const;
-
-    // 타임아웃 처리
-    bool waitWithTimeout(pid_t pid, int& status, int timeoutSec) const;
 
     std::string trim(const std::string& s) const;
 };

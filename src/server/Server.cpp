@@ -743,12 +743,6 @@ const ServerConfig& Server::pickDefaultServerConfigForFd(int fd) const {
     return _configs[0];
 }
 
-/*HttpResponse Server::buildErrorResponse(int code, const ServerConfig& cfg) const {
-    std::map<int, std::string> errorPages;
-    errorPages[code] = cfg.getErrorPage();
-    return ErrorHandler::buildError(code, errorPages);
-}*/
-
 HttpResponse Server::buildErrorResponse(int code, const ServerConfig& cfg) const {
     std::map<int, std::string> errorPages;
     const std::map<int, std::string>& cfgPages = cfg.getErrorPages();
@@ -955,8 +949,6 @@ void Server::feedCgiTask(CgiTask* task) {
             closeCgiFd(task, task->stdinFd);
         return;
     }
-    if (written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
-        return;
     closeCgiFd(task, task->stdinFd);
 }
 
@@ -970,8 +962,6 @@ void Server::drainCgiTask(CgiTask* task) {
         task->output.append(buffer, bytesRead);
         return;
     }
-    if (bytesRead < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
-        return;
     closeCgiFd(task, task->stdoutFd);
 }
 
