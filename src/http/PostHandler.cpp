@@ -149,7 +149,7 @@ HttpResponse POSTHandler::handleMultipart(const HttpRequest& request,
         return res;
     }
 
-    // 업로드 디렉토리 확인 및 생성
+    // 업로드 디렉토리 확인
     std::string uploadDir = location.getUploadStore();
     if (uploadDir.empty()) {
         res.setStatus(500);
@@ -157,15 +157,11 @@ HttpResponse POSTHandler::handleMultipart(const HttpRequest& request,
         return res;
     }
 
-    // 디렉토리 존재 확인
     struct stat st;
     if (stat(uploadDir.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) {
-        // 디렉토리 생성 시도
-        if (mkdir(uploadDir.c_str(), 0755) != 0) {
-            res.setStatus(500);
-            res.setBody("<h1>500 Internal Server Error</h1><p>Cannot create upload directory</p>");
-            return res;
-        }
+        res.setStatus(500);
+        res.setBody("<h1>500 Internal Server Error</h1><p>Upload directory not available</p>");
+        return res;
     }
 
     std::ostringstream result;
@@ -297,8 +293,6 @@ std::string POSTHandler::generateUniqueFilename(const std::string& dir,
 bool POSTHandler::isPathSafe(const std::string& fullPath,
                              const std::string& baseDir) const {
     // Canonical path 비교를 통한 검증
-    // 실제로는 realpath() 사용이 더 안전하지만 C++98 제약으로 간단히 구현
-    
     // fullPath가 baseDir로 시작하는지 확인
     if (fullPath.compare(0, baseDir.size(), baseDir) != 0)
         return false;

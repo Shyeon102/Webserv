@@ -16,6 +16,7 @@
 #include "RequestHandler.hpp"
 #include <string>
 #include <map>
+#include <sys/types.h>
 
 // CGI 실행을 담당하는 핸들러
 // RFC 3147 (CGI 1.1) 기반
@@ -26,6 +27,18 @@ public:
 
     virtual HttpResponse handle(const HttpRequest& request,
                                 const LocationConfig& location);
+    bool prepare(const HttpRequest& request,
+                 const LocationConfig& location,
+                 std::string& scriptPath,
+                 std::string& interpreter,
+                 std::map<std::string, std::string>& env,
+                 HttpResponse& errorResponse) const;
+    pid_t spawn(const std::string& scriptPath,
+                const std::string& interpreter,
+                const std::map<std::string, std::string>& env,
+                int& stdinFd,
+                int& stdoutFd) const;
+    HttpResponse buildResponse(const std::string& output) const;
 
 private:
     // CGI 환경 변수 생성

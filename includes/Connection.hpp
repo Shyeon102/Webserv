@@ -30,6 +30,8 @@ public:
 
     void closeAfterWrite();
     bool shouldCloseAfterWrite() const;
+    void setWaitingForCgi(bool waiting);
+    bool isWaitingForCgi() const;
 
     // keep-alive 관리용
     void incRequestCount();
@@ -48,6 +50,7 @@ private:
     // _out의 현재 포지션(얼마나 보냈는가)
 
     bool _closeAfterWrite;
+    bool _waitingForCgi;
     std::time_t _lastActive;
     int _requestsHandled;
 
