@@ -18,12 +18,24 @@
 #include <cctype>
 #include <signal.h>
 #include <vector>
+#include <limits.h>
 
 CgiHandler::CgiHandler() {}
 CgiHandler::~CgiHandler() {}
 
 static std::string makeAbsolutePath(const std::string& path) {
-    return path;
+    if (path.empty() || path[0] == '/')
+        return path;
+
+    char cwd[PATH_MAX];
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return path;
+
+    std::string absolute(cwd);
+    if (!absolute.empty() && absolute[absolute.size() - 1] != '/')
+        absolute += "/";
+    absolute += path;
+    return absolute;
 }
 
 static std::string stripQueryString(const std::string& uri) {
@@ -163,7 +175,7 @@ HttpResponse CgiHandler::buildResponse(const std::string& output) const {
 
 std::map<std::string, std::string> CgiHandler::buildEnv(
     const HttpRequest& request,
-    const LocationConfig&,
+    const LocationConfig& location,
     const std::string& scriptPath) const {
     
     std::map<std::string, std::string> env;
@@ -178,6 +190,12 @@ std::map<std::string, std::string> CgiHandler::buildEnv(
     env["SCRIPT_NAME"] = uriPath;
     env["SCRIPT_FILENAME"] = scriptPath;
     env["REQUEST_URI"] = request.getURI();
+    env["REDIRECT_STATUS"] = "200";
+
+    if (location.hasRoot())
+        env["DOCUMENT_ROOT"] = makeAbsolutePath(location.getRoot());
+    else
+        env["DOCUMENT_ROOT"] = makeAbsolutePath(".");
     
     // The 42 cgi_tester validates that PATH_INFO matches the requested URL
     // path.  Do not strip the matched location prefix here.
