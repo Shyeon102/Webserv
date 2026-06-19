@@ -54,6 +54,10 @@
             align-items: center;
         }
 
+        .actions + .actions {
+            margin-top: 8px;
+        }
+
         a,
         button,
         input[type="submit"] {
@@ -138,19 +142,25 @@
                     <button type="submit">CGI POST /upload.php</button>
                 </form>
             </div>
+            <div class="actions">
+                <button type="button" onclick="uploadTestFile('upload-1mb.bin')">upload existing 1MB</button>
+                <button type="button" onclick="uploadTestFile('upload-4mb.bin')">upload existing 4MB</button>
+                <button type="button" onclick="uploadTestFile('upload-8mb.bin')">upload existing 8MB</button>
+                <button type="button" onclick="uploadTestFile('upload-12mb.bin')">upload existing 12MB</button>
+                <a href="/test-files/upload-1mb.bin">download 1MB</a>
+                <a href="/test-files/upload-4mb.bin">download 4MB</a>
+                <a href="/test-files/upload-8mb.bin">download 8MB</a>
+                <a href="/test-files/upload-12mb.bin">download 12MB</a>
+            </div>
+            <pre id="uploadResult">upload result</pre>
         </section>
 
         <section>
             <h3>[BODY SIZE TEST]</h3>
             <div class="actions">
-                <button type="button" onclick="uploadTestFile('upload-1mb.bin')">upload 1MB</button>
-                <button type="button" onclick="uploadTestFile('upload-4mb.bin')">upload 4MB</button>
-                <button type="button" onclick="uploadTestFile('upload-8mb.bin')">upload 8MB</button>
-                <button type="button" onclick="uploadTestFile('upload-12mb.bin')">upload 12MB</button>
-                <a href="/test-files/upload-1mb.bin">download 1MB</a>
-                <a href="/test-files/upload-4mb.bin">download 4MB</a>
-                <a href="/test-files/upload-8mb.bin">download 8MB</a>
-                <a href="/test-files/upload-12mb.bin">download 12MB</a>
+                <button type="button" onclick="postRawBody(1048576)">POST body 1MB</button>
+                <button type="button" onclick="postRawBody(10485761)">POST body 10MB + 1B</button>
+                <button type="button" onclick="postRawBody(12582912)">POST body 12MB</button>
             </div>
             <pre id="bodySizeResult">body size result</pre>
         </section>
@@ -242,7 +252,7 @@
         }
 
         async function uploadTestFile(filename) {
-            const result = document.getElementById('bodySizeResult');
+            const result = document.getElementById('uploadResult');
             const url = '/test-files/' + filename;
 
             result.textContent = 'GET ' + url + ' ...';
@@ -294,6 +304,51 @@
             } catch (error) {
                 result.textContent = String(error);
             }
+        }
+
+        function postRawBody(size) {
+            const result = document.getElementById('bodySizeResult');
+            const body = new Uint8Array(size);
+            const xhr = new XMLHttpRequest();
+
+            xhr.open('POST', '/upload/');
+            xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+
+            result.textContent =
+                'POST /upload/\n' +
+                'Content-Length: ' + size + '\n' +
+                'uploading ...';
+
+            xhr.upload.onprogress = function (event) {
+                if (!event.lengthComputable)
+                    return;
+                const percent = Math.round((event.loaded / event.total) * 100);
+                result.textContent =
+                    'POST /upload/\n' +
+                    'Content-Length: ' + size + '\n' +
+                    percent + '% (' + event.loaded + ' / ' + event.total + ' bytes)';
+            };
+
+            xhr.onload = function () {
+                const preview = xhr.status === 413
+                    ? xhr.responseText.slice(0, 1200)
+                    : '';
+
+                result.textContent =
+                    'POST /upload/\n' +
+                    'Content-Length: ' + size + '\n' +
+                    xhr.status + ' ' + xhr.statusText +
+                    (preview ? '\n\n' + preview : '');
+            };
+
+            xhr.onerror = function () {
+                result.textContent =
+                    'POST /upload/\n' +
+                    'Content-Length: ' + size + '\n' +
+                    'network error';
+            };
+
+            xhr.send(body);
         }
     </script>
 </body>
