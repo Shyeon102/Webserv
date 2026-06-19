@@ -21,6 +21,8 @@
 #include <sys/wait.h>
 #include <signal.h>
 
+volatile sig_atomic_t Server::s_stop = 0;
+
 static void fatal(const char* msg) {
     std::cerr << msg << ": " << strerror(errno) << "\n";
     std::exit(1);
@@ -313,7 +315,7 @@ void Server::setNonBlocking(int fd) {
 }
 
 void Server::run() {
-    while (true) {
+    while (!s_stop) {
         sweepTimeouts();
         int ready = ::poll(&_pfds[0], _pfds.size(), 1000); // 1s tick
         if (ready < 0) {
