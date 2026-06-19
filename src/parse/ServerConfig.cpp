@@ -6,7 +6,7 @@
 /*   By: princessj <princessj@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/01/27 17:31:47 by jihyeki2          #+#    #+#             */
-/*   Updated: 2026/06/18 16:43:30 by princessj        ###   ########.fr       */
+/*   Updated: 2026/06/19 02:24:15 by princessj        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -16,7 +16,7 @@
 static const std::string	DEFAULT_SERVER_ROOT = "./www";
 static const std::string	DEFAULT_ERROR_PAGE = "/errors/404.html";
 static const size_t			DEFAULT_CLIENT_MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB
-static const size_t			MAX_CLIENT_BODY_SIZE = 10 * 1024 * 1024; // 정책: 최대 10MB
+static const size_t			MAX_CLIENT_BODY_SIZE = 1024UL * 1024 * 1024; // 정책: 최대 1GB
 static const int			DEFAULT_MAX_CONNECTIONS = 1024;
 static const int			DEFAULT_IDLE_TIMEOUT = 15;
 static const int			DEFAULT_WRITE_TIMEOUT = 10;
@@ -524,7 +524,10 @@ void	ServerConfig::validateServerBlock()
 	applyDefaultRoot(); // 2) root 기본값
 	applyDefaultErrorPage(); // 3) error_page 기본값
 	if (!this->_hasClientMaxBodySize) // 필수는 아니지만, 런타임에서 반드시 필요
+	{
 		this->_clientMaxBodySize = DEFAULT_CLIENT_MAX_BODY_SIZE;
+		this->_hasClientMaxBodySize = true;
+	}
 	if (!this->_hasMaxConnections)
 		this->_maxConnections = DEFAULT_MAX_CONNECTIONS;
 	if (!this->_hasIdleTimeout)

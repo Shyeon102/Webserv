@@ -6,7 +6,7 @@
 /*   By: princessj <princessj@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/01/26 22:35:52 by jihyeki2          #+#    #+#             */
-/*   Updated: 2026/06/18 15:40:23 by princessj        ###   ########.fr       */
+/*   Updated: 2026/06/19 02:30:07 by princessj        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -20,7 +20,7 @@ std::vector<Token>	ConfigTokenizer::tokenize(const std::string &content)
 	while (i < content.size())
 	{
 		// 1) 공백 무시
-		if (std::isspace(content[i]))
+		if (std::isspace(static_cast<unsigned char>(content[i])))
 		{
 			i++;
 			continue ;
@@ -59,7 +59,7 @@ std::vector<Token>	ConfigTokenizer::tokenize(const std::string &content)
 		{
 			size_t	start = i;
 			
-			while (i < content.size() && !std::isspace(content[i])
+			while (i < content.size() && !std::isspace(static_cast<unsigned char>(content[i]))
 				&& content[i] != '{' && content[i] != '}'
 				&& content[i] != ';' && content[i] != '#')
 				i++;
