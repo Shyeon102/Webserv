@@ -6,7 +6,7 @@
 /*   By: princessj <princessj@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/01/25 16:03:47 by jihyeki2          #+#    #+#             */
-/*   Updated: 2026/06/19 02:33:50 by princessj        ###   ########.fr       */
+/*   Updated: 2026/06/19 16:07:08 by princessj        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -271,9 +271,6 @@ void	Config::checkDuplicateServer(void) const
 		{
 			if (!sharesListenAddress(this->_servers[i], this->_servers[j]))
 				continue ;
-
-			/*if (!this->_servers[i].hasServerNames() && !this->_servers[j].hasServerNames())
-				throw ConfigSemanticException("Error: duplicate server: same listen address without server_name");*/
 
 			if (serverNamesOverlap(this->_servers[i], this->_servers[j]))
 				throw ConfigSemanticException("Error: duplicate server: same listen address and server_name");
