@@ -121,7 +121,8 @@
             <h3>[METHOD TEST]</h3>
             <div class="actions">
                 <button type="button" onclick="sendRequest('GET', '/static/')">GET /static/</button>
-                <button type="button" onclick="sendRequest('POST', '/upload.php')">POST /upload.php</button>
+                <button type="button" onclick="sendRequest('POST', '/upload.py')">POST /upload.py</button>
+                <button type="button" onclick="sendRequest('POST', '/calculator.php')">POST /calculator.php</button>
                 <button type="button" onclick="prepareDeleteTarget()">prepare delete-me.txt</button>
                 <button type="button" onclick="sendRequest('DELETE', document.getElementById('deleteTarget').value)">DELETE target</button>
                 <input id="deleteTarget" type="text" value="/upload/delete-me.txt" aria-label="delete target">
@@ -137,9 +138,9 @@
                     <input type="file" name="file">
                     <button type="submit">upload_store /upload/</button>
                 </form>
-                <form method="post" enctype="multipart/form-data" action="/upload.php">
+                <form method="post" enctype="multipart/form-data" action="/upload.py">
                     <input type="file" name="Yofile">
-                    <button type="submit">CGI POST /upload.php</button>
+                    <button type="submit">Python CGI POST /upload.py</button>
                 </form>
             </div>
             <div class="actions">
@@ -153,6 +154,23 @@
                 <a href="/test-files/upload-12mb.bin">download 12MB</a>
             </div>
             <pre id="uploadResult">upload result</pre>
+        </section>
+
+        <section>
+            <h3>[PHP CGI CALCULATOR]</h3>
+            <form method="post" action="/calculator.php" class="actions">
+                <input type="number" step="any" name="a" value="42" aria-label="first number">
+                <select name="op" aria-label="operation">
+                    <option value="add">+</option>
+                    <option value="sub">-</option>
+                    <option value="mul" selected>*</option>
+                    <option value="div">/</option>
+                    <option value="mod">%</option>
+                    <option value="pow">^</option>
+                </select>
+                <input type="number" step="any" name="b" value="2" aria-label="second number">
+                <button type="submit">PHP CGI /calculator.php</button>
+            </form>
         </section>
 
         <section>
@@ -204,7 +222,10 @@
 
             if (method === 'POST') {
                 options.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
-                options.body = 'fname=webserv&message=method-test';
+                if (target === '/calculator.php')
+                    options.body = 'a=7&op=mul&b=6';
+                else
+                    options.body = 'fname=webserv&message=method-test';
             }
 
             result.textContent = method + ' ' + target + ' ...';

@@ -110,7 +110,7 @@ def parse_multipart(body, content_type):
             continue
 
         os.makedirs(UPLOAD_DIR, exist_ok=True)
-        stored_name = "cgi-{0}-{1}".format(int(time.time()), safe_filename(filename))
+        stored_name = "py-cgi-{0}-{1}".format(int(time.time()), safe_filename(filename))
         stored_path = os.path.join(UPLOAD_DIR, stored_name)
         with open(stored_path, "wb") as fp:
             fp.write(data)
@@ -125,6 +125,7 @@ def handle_post():
     body = read_body()
 
     rows = [
+        ("script", "upload.py"),
         ("method", method),
         ("content-type", content_type),
         ("content-length", str(len(body))),
@@ -160,18 +161,18 @@ def handle_post():
         )
     table += "</tbody></table>"
     table += '<p><a href="/">Back to index</a></p>'
-    response(page("CGI upload.php result", table))
+    response(page("Python CGI upload.py result", table))
 
 
 def handle_get():
     content = """
-<form method="post" enctype="multipart/form-data" action="/upload.php">
+<form method="post" enctype="multipart/form-data" action="/upload.py">
   <p><input type="file" name="Yofile"></p>
-  <p><button type="submit">Upload with CGI</button></p>
+  <p><button type="submit">Upload with Python CGI</button></p>
 </form>
 <p>Saved files go to <code>/uploads/</code>.</p>
 """
-    response(page("CGI upload.php", content))
+    response(page("Python CGI upload.py", content))
 
 
 if os.environ.get("REQUEST_METHOD", "GET") == "POST":
