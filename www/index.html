@@ -141,6 +141,21 @@
         </section>
 
         <section>
+            <h3>[BODY SIZE TEST]</h3>
+            <div class="actions">
+                <button type="button" onclick="uploadTestFile('upload-1mb.bin')">upload 1MB</button>
+                <button type="button" onclick="uploadTestFile('upload-4mb.bin')">upload 4MB</button>
+                <button type="button" onclick="uploadTestFile('upload-8mb.bin')">upload 8MB</button>
+                <button type="button" onclick="uploadTestFile('upload-12mb.bin')">upload 12MB</button>
+                <a href="/test-files/upload-1mb.bin">download 1MB</a>
+                <a href="/test-files/upload-4mb.bin">download 4MB</a>
+                <a href="/test-files/upload-8mb.bin">download 8MB</a>
+                <a href="/test-files/upload-12mb.bin">download 12MB</a>
+            </div>
+            <pre id="bodySizeResult">body size result</pre>
+        </section>
+
+        <section>
             <h3>[AUTOINDEX TEST]</h3>
             <div class="actions">
                 <a href="/test/">autoindex on /test/</a>
@@ -221,6 +236,61 @@
                     'POST /upload/\n' +
                     response.status + ' ' + response.statusText + '\n\n' +
                     body.slice(0, 1200);
+            } catch (error) {
+                result.textContent = String(error);
+            }
+        }
+
+        async function uploadTestFile(filename) {
+            const result = document.getElementById('bodySizeResult');
+            const url = '/test-files/' + filename;
+
+            result.textContent = 'GET ' + url + ' ...';
+
+            try {
+                const fileResponse = await fetch(url);
+                if (!fileResponse.ok) {
+                    result.textContent =
+                        'GET ' + url + '\n' +
+                        fileResponse.status + ' ' + fileResponse.statusText;
+                    return;
+                }
+
+                const blob = await fileResponse.blob();
+                const form = new FormData();
+                form.append('file', blob, filename);
+
+                result.textContent =
+                    'POST /upload/\n' +
+                    filename + ' (' + blob.size + ' bytes)\n' +
+                    'uploading ...';
+
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', '/upload/');
+
+                xhr.upload.onprogress = function (event) {
+                    if (!event.lengthComputable)
+                        return;
+                    const percent = Math.round((event.loaded / event.total) * 100);
+                    result.textContent =
+                        'POST /upload/\n' +
+                        filename + ' (' + blob.size + ' bytes)\n' +
+                        percent + '% (' + event.loaded + ' / ' + event.total + ' bytes)';
+                };
+
+                xhr.onload = function () {
+                    result.textContent =
+                        'POST /upload/\n' +
+                        filename + ' (' + blob.size + ' bytes)\n' +
+                        xhr.status + ' ' + xhr.statusText + '\n\n' +
+                        xhr.responseText.slice(0, 1200);
+                };
+
+                xhr.onerror = function () {
+                    result.textContent = 'POST /upload/\nnetwork error';
+                };
+
+                xhr.send(form);
             } catch (error) {
                 result.textContent = String(error);
             }
