@@ -10,7 +10,7 @@ bool	isNumber(const std::string &s)
 	
 	for (size_t i = 0; i < s.size(); i++)
 	{
-		if (!std::isdigit(s[i]))
+		if (!std::isdigit(static_cast<unsigned char>(s[i])))
 			return false;
 	}
 

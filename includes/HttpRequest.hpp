@@ -6,7 +6,7 @@
 /*   By: princessj <princessj@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/12/20 16:24:57 by jaoh              #+#    #+#             */
-/*   Updated: 2026/02/17 01:03:04 by princessj        ###   ########.fr       */
+/*   Updated: 2026/06/19 03:09:23 by princessj        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -114,7 +114,7 @@ private:
     time_t lastActivityTime;
     
     // 보안 제한 (설정 가능하도록 static const로)
-    static const size_t MAX_REQUEST_SIZE = 120 * 1024 * 1024;  // 10MB
+    static const size_t MAX_REQUEST_SIZE = 1024UL * 1024 * 1024; // 1GB
     static const size_t MAX_HEADER_SIZE = 8 * 1024;            // 8KB
     static const size_t MAX_URI_LENGTH = 2048;                 // 2KB
     static const size_t MAX_LINE_LENGTH = 8192;                // 8KB
