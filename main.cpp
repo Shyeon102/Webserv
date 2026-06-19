@@ -4,9 +4,16 @@
 #include "Config.hpp"
 #include "Server.hpp"
 
+static void onTerminate(int) {
+    // async-signal-safe: sig_atomic_t에 플래그만 set
+    Server::s_stop = 1;
+}
+
 int main(int argc, char* argv[])
 {
     signal(SIGPIPE, SIG_IGN); // 추가: 클라이언트가 갑자기 끊겨도 서버가 안 죽게
+    signal(SIGINT, onTerminate);  // Ctrl+C → graceful shutdown
+    signal(SIGTERM, onTerminate); // kill → graceful shutdown
     const std::string configPath = (argc > 1) ? argv[1] : DEFAULT_CONFIG_PATH;
     // config path를 입력 받음.
     try {

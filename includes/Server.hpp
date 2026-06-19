@@ -8,6 +8,7 @@
 #include <poll.h>
 #include <set>
 #include <sys/types.h>
+#include <csignal>
 
 #include "Connection.hpp"
 #include "HttpRequest.hpp"
@@ -21,6 +22,10 @@ public:
     ~Server();
 
     void run();
+
+    // SIGINT/SIGTERM 핸들러에서 set. run() 루프를 빠져나오게 해
+    // 소멸자가 정상 실행되도록 한다 (valgrind still-reachable 방지).
+    static volatile sig_atomic_t s_stop;
 
 private:
     std::vector<ServerConfig> _configs;      // 모든 server 블록 설정을 저장
