@@ -105,16 +105,18 @@ pid_t CgiHandler::spawn(const std::string& scriptPath,
             envp.push_back(const_cast<char*>(envStrings[i].c_str()));
         envp.push_back(NULL);
 
+        std::string childScriptPath = scriptPath;
         size_t lastSlash = scriptPath.find_last_of('/');
         if (lastSlash != std::string::npos) {
             std::string dir = scriptPath.substr(0, lastSlash);
             if (chdir(dir.c_str()) < 0)
                 exit(1);
+            childScriptPath = scriptPath.substr(lastSlash + 1);
         }
 
         char* argv[3];
         argv[0] = const_cast<char*>(interpreter.c_str());
-        argv[1] = const_cast<char*>(scriptPath.c_str());
+        argv[1] = const_cast<char*>(childScriptPath.c_str());
         argv[2] = NULL;
         execve(interpreter.c_str(), argv, &envp[0]);
         exit(1);
