@@ -17,7 +17,7 @@ bool	isNumber(const std::string &s)
 	return true;
 }
 
-Token			directiveSyntaxCheck(const std::vector<Token>& tokens, size_t& i, const std::string& directiveName)
+Token	directiveSyntaxCheck(const std::vector<Token>& tokens, size_t& i, const std::string& directiveName)
 {
 	if ((i + 1) >= tokens.size())
 		throw ConfigSyntaxException("Error: " + directiveName + " requires an argument");
